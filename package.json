@@ -1,0 +1,29 @@
+{
+  "name": "restauranteapp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "tsx source/backend/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test source/backend/tests/**/*.test.ts"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "bonjour-service": "^1.4.4",
+    "hono": "^4.13.5",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

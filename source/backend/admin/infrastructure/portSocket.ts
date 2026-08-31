@@ -1,0 +1,102 @@
+import { createConnection, createServer, type Server } from 'node:net';
+import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+
+const SOCKET_FILENAME = 'admin-port.sock';
+
+function isTermuxAndroid(): boolean {
+  const prefix = process.env.PREFIX ?? '';
+  return (
+    process.platform === 'android' ||
+    process.env.TERMUX_VERSION !== undefined ||
+    prefix.includes('com.termux')
+  );
+}
+
+export function getAdminPortSocketPath(): string {
+  if (isTermuxAndroid()) {
+    const prefix = process.env.PREFIX;
+    if (!prefix) {
+      throw new Error('Termux fue detectado, pero PREFIX no está definido.');
+    }
+    return join(prefix, 'var', 'run', 'restaurante-app', SOCKET_FILENAME);
+  }
+
+  const runtimeDirectory =
+    process.env.XDG_RUNTIME_DIR ??
+    join('/tmp', `restaurante-app-${process.getuid?.() ?? 'unknown'}`);
+  return join(runtimeDirectory, 'restaurante-app', SOCKET_FILENAME);
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function socketIsActive(path: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const client = createConnection(path);
+    let settled = false;
+
+    const finish = (active: boolean) => {
+      if (settled) return;
+      settled = true;
+      client.destroy();
+      resolve(active);
+    };
+
+    client.once('connect', () => finish(true));
+    client.once('error', () => finish(false));
+    client.setTimeout(500, () => finish(false));
+  });
+}
+
+export type AdminPortSocket = {
+  path: string;
+  server: Server;
+  close: () => Promise<void>;
+};
+
+export async function createAdminPortSocket(
+  port: number,
+  path = getAdminPortSocketPath(),
+): Promise<AdminPortSocket> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+
+  if (await pathExists(path)) {
+    if (await socketIsActive(path)) {
+      throw new Error(`Ya existe un servidor usando el socket ${path}.`);
+    }
+    // Un cierre abrupto puede dejar el nombre del socket sin un listener.
+    await unlink(path);
+  }
+
+  const server = createServer((connection) => {
+    connection.on('error', () => {
+      // Un cliente puede desconectarse mientras lee el puerto; no es fatal.
+    });
+    connection.end(`${port}\n`);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(path, () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
+  });
+  await chmod(path, 0o600);
+
+  return {
+    path,
+    server,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (await pathExists(path)) await unlink(path);
+    },
+  };
+}
