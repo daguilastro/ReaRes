@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "tsx source/backend/server.ts",
+    "reset:history": "./scripts/reset-order-history.sh",
     "typecheck": "tsc6 --noEmit",
     "test": "tsx --test source/backend/tests/**/*.test.ts"
   },

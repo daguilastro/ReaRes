@@ -144,7 +144,6 @@ CREATE TABLE IF NOT EXISTS "products" (
 	"value" INTEGER NOT NULL CHECK ("value" >= 0),
 	"menu_id" INTEGER NOT NULL,
 	"category_id" INTEGER NOT NULL,
-	UNIQUE ("menu_id", "name"),
 	FOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("category_id") REFERENCES "menu_categories"("id") ON DELETE RESTRICT
 );

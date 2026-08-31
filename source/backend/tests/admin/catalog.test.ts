@@ -112,6 +112,13 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.deepEqual(product.ingredientIds, [ingredientId]);
   assert.deepEqual(product.hallIds, [2]);
 
+  const duplicateName = await app.request(`/menus/${menuId}/products`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ name: 'Tomato soup', description: 'Another recipe', value: 1500,
+      categoryId, ingredientIds: [], hallIds: [] }),
+  });
+  assert.equal(duplicateName.status, 201);
+
   const invalidRestriction = await app.request(`/menus/${menuId}/products`, {
     method: 'POST', headers,
     body: JSON.stringify({ name: 'Hidden soup', value: 500, categoryId,
@@ -136,7 +143,7 @@ test('an admin builds menus with categories, products and room restrictions', as
   const special = catalog.menus[0].categories.find(
     ({ id }) => id === specialCategory.id,
   )!;
-  assert.equal(regular.products.length, 1);
+  assert.equal(regular.products.length, 2);
   assert.equal(regular.subcategories[0].isSpecial, false);
   assert.equal(special.isSpecial, true);
   assert.equal(special.subcategories.length, 0);

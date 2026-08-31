@@ -267,6 +267,8 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
     `);
   }
 
+  removeProductNameUniqueness(database);
+
   const menuHallColumns = database.prepare('PRAGMA table_info(menu_halls)').all() as Column[];
   if (menuHallColumns.length > 0 && !menuHallColumns.some(({ name }) => name === 'is_primary')) {
     database.exec(
@@ -341,6 +343,47 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS ingredients_category_id_idx ON ingredients(category_id);
   `);
   ensureSpecialCategoryConstraints(database);
+}
+
+function removeProductNameUniqueness(database: DatabaseSync): void {
+  const uniqueIndexes = database.prepare(
+    "PRAGMA index_list('products')",
+  ).all() as Array<{ name: string; unique: number; origin: string }>;
+  const hasNameConstraint = uniqueIndexes.some((index) => {
+    if (index.unique !== 1 || index.origin !== 'u') return false;
+    const columns = database.prepare(
+      `PRAGMA index_info('${index.name.replaceAll("'", "''")}')`,
+    ).all() as Array<{ name: string }>;
+    return columns.length === 2 &&
+      columns[0].name === 'menu_id' && columns[1].name === 'name';
+  });
+  if (!hasNameConstraint) return;
+
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN IMMEDIATE;
+    CREATE TABLE products_without_name_uniqueness (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      value INTEGER NOT NULL CHECK (value >= 0),
+      menu_id INTEGER NOT NULL,
+      category_id INTEGER NOT NULL,
+      FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE,
+      FOREIGN KEY (category_id) REFERENCES menu_categories(id) ON DELETE RESTRICT
+    );
+    INSERT INTO products_without_name_uniqueness
+      (id, name, description, value, menu_id, category_id)
+      SELECT id, name, description, value, menu_id, category_id FROM products;
+    DROP TABLE products;
+    ALTER TABLE products_without_name_uniqueness RENAME TO products;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+  const violations = database.prepare('PRAGMA foreign_key_check').all();
+  if (violations.length > 0) {
+    throw new Error('La migración de productos dejó claves foráneas inválidas.');
+  }
 }
 
 export function ensureOrderSchema(database: DatabaseSync): void {
