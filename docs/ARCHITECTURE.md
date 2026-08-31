@@ -232,10 +232,13 @@ El puerto de red puede cambiar después de reiniciar el backend. Por ello, el cl
 6. Consulta `/device/connection`.
 7. Solo continúa al login si el servidor también reconoce el dispositivo.
 
-En Android, donde mDNS no es suficientemente consistente, el cliente solicita
-un QR al iniciar. Después del handshake comprueba `/device/connection` con su
-certificado antes de guardar atómicamente el nuevo endpoint y mostrar el login.
-Un mismo certificado puede volver a emparejarse con una invitación nueva.
+En Android, donde mDNS no es suficientemente consistente, el primer pairing se
+hace mediante QR. Después del handshake comprueba `/device/connection` con su
+certificado antes de guardar atómicamente IP, puerto, huella y si Node vive en el
+mismo dispositivo. En los siguientes arranques reutiliza ese endpoint con mTLS;
+para Termux en el mismo teléfono prueba loopback primero. Si la comprobación
+falla vuelve a ofrecer el QR. La reconexión solo descubre y autentica el servidor:
+la cuenta del empleado debe iniciar sesión de nuevo.
 
 `admin-port.txt` utiliza un objeto JSON con `adminPort`, `deviceHost`,
 `devicePort` y `updatedAt`. Node revisa la IPv4 local cada tres segundos y
@@ -272,6 +275,13 @@ PRAGMA foreign_keys = ON;
 ```
 
 `schheme.sql` se ejecuta de manera idempotente y después se aplican migraciones de compatibilidad en `schemaMigration.ts`.
+
+Los precios se almacenan como pesos enteros, sin centavos implícitos. La
+migración `2026-08-normalize-product-values-to-pesos` divide una sola vez entre
+100 los valores heredados de productos y de productos retirados. El script
+`scripts/start-server-background.sh` crea antes una copia SQLite consistente en
+`restaurante-app/backups/`; la fila de `schema_migrations` impide repetir tanto
+la transformación como el respaldo en arranques posteriores.
 
 ### 5.2 Archivos WAL y SHM
 

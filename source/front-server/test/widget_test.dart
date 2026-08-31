@@ -24,9 +24,9 @@ Future<void> failChecksImmediately() async => throw Exception('not found');
 Future<AdminSession?> restoreNoSession() async => null;
 
 void main() {
-  test('formats cent values as whole pesos separated with spaces', () {
-    expect(formatPesos(1800), r'$18');
-    expect(formatPesos(123400), r'$1 234');
+  test('formats stored pesos directly with spaces', () {
+    expect(formatPesos(1800), r'$1 800');
+    expect(formatPesos(123400), r'$123 400');
   });
   testWidgets('splash waits until initial checks finish', (tester) async {
     final checks = Completer<void>();
@@ -421,8 +421,8 @@ void main() {
     expect(find.text('Terraza'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('31'), findsOneWidget);
-    expect(find.text(r'$821'), findsOneWidget);
-    expect(find.text(r'$26'), findsOneWidget);
+    expect(find.text(r'$82 050'), findsOneWidget);
+    expect(find.text(r'$2 647'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('room-card-8')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('fake-room-editor')), findsOneWidget);

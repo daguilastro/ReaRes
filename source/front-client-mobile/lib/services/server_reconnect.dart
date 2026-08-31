@@ -15,10 +15,40 @@ Future<bool> reconnectToPairedServer() async {
   try {
     final state = jsonDecode(await stateFile.readAsString());
     if (state is! Map<String, dynamic> ||
+        state['host'] is! String ||
+        state['port'] is! int ||
         state['certificateFingerprint'] is! String) {
       return false;
     }
     final fingerprint = state['certificateFingerprint'] as String;
+    final savedHost = state['host'] as String;
+    final savedPort = state['port'] as int;
+    final localServer =
+        state['localServer'] == true || await _isAddressOnThisDevice(savedHost);
+
+    // Android no depende de mDNS: primero reutiliza el endpoint autenticado
+    // del pairing anterior. Si Node corre en el mismo teléfono, loopback sigue
+    // siendo estable incluso cuando cambia la red Wi-Fi.
+    if (Platform.isAndroid) {
+      if (localServer &&
+          await _verifyCandidate(
+            identity,
+            InternetAddress.loopbackIPv4.address,
+            savedPort,
+            fingerprint,
+            localServer: true,
+          )) {
+        return true;
+      }
+      return _verifyCandidate(
+        identity,
+        savedHost,
+        savedPort,
+        fingerprint,
+        localServer: localServer,
+      );
+    }
+
     final mdns = MDnsClient();
     await mdns.start().timeout(const Duration(seconds: 2));
     try {
@@ -42,6 +72,7 @@ Future<bool> reconnectToPairedServer() async {
               address.address.address,
               service.port,
               fingerprint,
+              localServer: localServer,
             )) {
               return true;
             }
@@ -60,12 +91,28 @@ Future<bool> reconnectToPairedServer() async {
   return false;
 }
 
+Future<bool> _isAddressOnThisDevice(String host) async {
+  if (InternetAddress.tryParse(host)?.isLoopback == true) return true;
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: true,
+    );
+    return interfaces
+        .expand((interface) => interface.addresses)
+        .any((address) => address.address == host);
+  } on Object {
+    return false;
+  }
+}
+
 Future<bool> _verifyCandidate(
   ClientIdentity identity,
   String host,
   int port,
-  String fingerprint,
-) async {
+  String fingerprint, {
+  required bool localServer,
+}) async {
   final client = createPinnedMtlsClient(
     identity: identity,
     host: host,
@@ -82,14 +129,19 @@ Future<bool> _verifyCandidate(
     final stateFile = File(
       '${identity.directory}${Platform.pathSeparator}paired-server.json',
     );
-    await stateFile.writeAsString(
+    final temporary = File('${stateFile.path}.reconnect.tmp');
+    await temporary.writeAsString(
       jsonEncode({
+        'version': 1,
         'host': host,
         'port': port,
         'certificateFingerprint': fingerprint,
+        'localServer': localServer,
+        'reconnectedAt': DateTime.now().toUtc().toIso8601String(),
       }),
       flush: true,
     );
+    await temporary.rename(stateFile.path);
     return true;
   } on Object {
     return false;

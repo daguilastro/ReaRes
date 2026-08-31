@@ -38,7 +38,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
     return value * item.quantity;
   }
 
-  int get _totalCents => widget.order.items.fold<int>(
+  int get _totalPesos => widget.order.items.fold<int>(
     0,
     (total, item) => total + _lineTotal(item),
   );
@@ -275,7 +275,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    formatPesos(_totalCents),
+                    formatPesos(_totalPesos),
                     style: const TextStyle(
                       fontSize: 30,
                       fontWeight: FontWeight.w800,

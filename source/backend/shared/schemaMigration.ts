@@ -497,6 +497,37 @@ export function ensureOrderSchema(database: DatabaseSync): void {
   ensureSpecialOrderItemConstraints(database);
 }
 
+export function ensurePesoValueMigration(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at DATETIME NOT NULL
+    );
+  `);
+  const migrationName = '2026-08-normalize-product-values-to-pesos';
+  const applied = database.prepare(
+    'SELECT 1 FROM schema_migrations WHERE name = ? LIMIT 1',
+  ).get(migrationName);
+  if (applied) return;
+
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    database.exec(`
+      UPDATE products
+      SET value = CAST((value + 50) / 100 AS INTEGER);
+      UPDATE removed_order_items
+      SET unit_value = CAST((unit_value + 50) / 100 AS INTEGER);
+    `);
+    database.prepare(
+      'INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)',
+    ).run(migrationName, new Date().toISOString());
+    database.exec('COMMIT');
+  } catch (error) {
+    try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+    throw error;
+  }
+}
+
 export function openApplicationDatabase(): DatabaseSync {
   const databasePath = applicationDatabasePath();
   const migrated = migrateLegacyApplicationDatabase(databasePath);
@@ -509,5 +540,6 @@ export function openApplicationDatabase(): DatabaseSync {
   ensureLayoutSchema(database);
   ensureCatalogSchema(database);
   ensureOrderSchema(database);
+  ensurePesoValueMigration(database);
   return database;
 }

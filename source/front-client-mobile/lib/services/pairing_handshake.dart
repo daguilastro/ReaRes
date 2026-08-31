@@ -120,6 +120,7 @@ Future<void> _savePairedServer(
   ClientIdentity identity,
   PairingInvitation invitation,
 ) async {
+  final localServer = await _isAddressOnThisDevice(invitation.host);
   final separator = Platform.pathSeparator;
   final destination = File(
     '${identity.directory}${separator}paired-server.json',
@@ -134,6 +135,7 @@ Future<void> _savePairedServer(
         'host': invitation.host,
         'port': invitation.port,
         'certificateFingerprint': invitation.certificateFingerprint,
+        'localServer': localServer,
         'pairedAt': DateTime.now().toUtc().toIso8601String(),
       }),
       flush: true,
@@ -141,5 +143,20 @@ Future<void> _savePairedServer(
     await temporary.rename(destination.path);
   } finally {
     if (await temporary.exists()) await temporary.delete();
+  }
+}
+
+Future<bool> _isAddressOnThisDevice(String host) async {
+  if (InternetAddress.tryParse(host)?.isLoopback == true) return true;
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: true,
+    );
+    return interfaces
+        .expand((interface) => interface.addresses)
+        .any((address) => address.address == host);
+  } on Object {
+    return false;
   }
 }

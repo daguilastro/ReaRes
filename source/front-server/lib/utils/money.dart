@@ -1,5 +1,5 @@
 String formatPesos(num value) {
-  final rounded = (value / 100).round();
+  final rounded = value.round();
   final sign = rounded < 0 ? '-' : '';
   final digits = rounded.abs().toString();
   final result = StringBuffer();

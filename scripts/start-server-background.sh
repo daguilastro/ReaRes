@@ -51,11 +51,13 @@ fi
 
 rm -f "$PID_FILE"
 
+cd "$PROJECT_DIRECTORY"
+node scripts/backup-before-peso-normalization.mjs
+
 if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock
 fi
 
-cd "$PROJECT_DIRECTORY"
 nohup ./node_modules/.bin/tsx source/backend/server.ts \
   </dev/null >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -28,7 +26,6 @@ class SplashScreen extends StatefulWidget {
     this.skipPairing = false,
     this.reconnectCheck = reconnectToPairedServer,
     this.reconnectTimeout = const Duration(seconds: 8),
-    this.alwaysPairOnStartup,
   });
 
   final AppStrings strings;
@@ -36,7 +33,6 @@ class SplashScreen extends StatefulWidget {
   final bool skipPairing;
   final Future<bool> Function() reconnectCheck;
   final Duration reconnectTimeout;
-  final bool? alwaysPairOnStartup;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -69,19 +65,17 @@ class _SplashScreenState extends State<SplashScreen>
     try {
       await widget.initialChecks();
       if (!mounted) return;
-      final requiresPairing = widget.alwaysPairOnStartup ?? Platform.isAndroid;
       reconnected =
           widget.skipPairing ||
-          (!requiresPairing &&
-              await widget.reconnectCheck().timeout(
-                widget.reconnectTimeout,
-                onTimeout: () {
-                  debugPrint(
-                    'La reconexión mDNS excedió ${widget.reconnectTimeout.inSeconds}s.',
-                  );
-                  return false;
-                },
-              ));
+          await widget.reconnectCheck().timeout(
+            widget.reconnectTimeout,
+            onTimeout: () {
+              debugPrint(
+                'La reconexión excedió ${widget.reconnectTimeout.inSeconds}s.',
+              );
+              return false;
+            },
+          );
     } on Object catch (error, stackTrace) {
       // Una comprobación fallida nunca debe dejar el splash bloqueado. La
       // pantalla de pairing podrá volver a crear/verificar la identidad.

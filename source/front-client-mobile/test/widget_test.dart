@@ -21,9 +21,9 @@ Future<bool> reconnectFails() async => false;
 Future<bool> reconnectNeverFinishes() => Completer<bool>().future;
 
 void main() {
-  test('formats cent values as whole pesos separated with spaces', () {
-    expect(formatPesos(1800), r'$18');
-    expect(formatPesos(123400), r'$1 234');
+  test('formats stored pesos directly with spaces', () {
+    expect(formatPesos(1800), r'$1 800');
+    expect(formatPesos(123400), r'$123 400');
   });
   testWidgets('splash waits until initial checks finish', (tester) async {
     final checks = Completer<void>();
@@ -129,30 +129,6 @@ void main() {
 
     expect(find.byType(LoginPage), findsOneWidget);
     expect(find.byType(PairingPage), findsNothing);
-  });
-
-  testWidgets('Android always opens pairing without attempting mDNS', (
-    tester,
-  ) async {
-    var reconnectAttempts = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SplashScreen(
-          strings: AppStrings.fromLocale(const Locale('en')),
-          initialChecks: completeChecksImmediately,
-          alwaysPairOnStartup: true,
-          reconnectCheck: () async {
-            reconnectAttempts++;
-            return true;
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(reconnectAttempts, 0);
-    expect(find.byType(PairingPage), findsOneWidget);
-    expect(find.byType(LoginPage), findsNothing);
   });
 
   testWidgets('a stalled mDNS reconnect falls back to desktop pairing', (
