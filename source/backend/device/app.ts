@@ -219,6 +219,19 @@ export function createDeviceApp(options: Options = {}) {
     });
   });
 
+  app.get('/auth/session', (c) => {
+    const session = employeeSession(c);
+    if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
+    return c.json({
+      user: {
+        id: session.userId,
+        fullName: session.fullName,
+        username: session.username,
+        role: session.role,
+      },
+    });
+  });
+
   app.get('/rooms', (c) => {
     const session = employeeSession(c);
     if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
@@ -917,7 +930,7 @@ function productVisibleInRoom(database: DatabaseSync, productId: number, roomId:
   return database.prepare(
     `SELECT 1 FROM products p
      JOIN menu_halls mh ON mh.menu_id = p.menu_id AND mh.hall_id = ?
-     WHERE p.id = ? AND (mh.is_primary = 1 OR EXISTS (
+     WHERE p.id = ? AND p.is_active = 1 AND (mh.is_primary = 1 OR EXISTS (
        SELECT 1 FROM product_halls ph WHERE ph.product_id = p.id AND ph.hall_id = ?
      )) LIMIT 1`,
   ).get(roomId, productId, roomId) !== undefined;
@@ -1238,7 +1251,7 @@ function readRoomMenus(database: DatabaseSync, roomId: number) {
       products: (database.prepare(
         `SELECT p.id, p.name, p.description, p.value
          FROM products p
-         WHERE p.category_id = ?
+         WHERE p.category_id = ? AND p.is_active = 1
            AND (? = 1 OR EXISTS (
              SELECT 1 FROM product_halls allowed
              WHERE allowed.product_id = p.id AND allowed.hall_id = ?

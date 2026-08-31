@@ -50,6 +50,7 @@ class CatalogProduct {
     required this.ingredientIds,
     required this.hallIds,
     this.description,
+    this.isActive = true,
   });
   factory CatalogProduct.fromJson(Map<String, dynamic> json) => CatalogProduct(
     id: json['id'] as int,
@@ -60,6 +61,7 @@ class CatalogProduct {
     categoryId: json['categoryId'] as int,
     ingredientIds: (json['ingredientIds'] as List).cast<int>(),
     hallIds: (json['hallIds'] as List).cast<int>(),
+    isActive: json['isActive'] as bool? ?? true,
   );
   final int id;
   final String name;
@@ -69,6 +71,7 @@ class CatalogProduct {
   final int categoryId;
   final List<int> ingredientIds;
   final List<int> hallIds;
+  final bool isActive;
 }
 
 class MenuCategory {

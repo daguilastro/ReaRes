@@ -381,6 +381,48 @@ Future<CatalogProduct> createMenuProduct({
   return CatalogProduct.fromJson(body['product'] as Map<String, dynamic>);
 }
 
+Future<CatalogProduct> updateMenuProduct({
+  required String token,
+  required int productId,
+  required String name,
+  required String description,
+  required int value,
+  required List<int> ingredientIds,
+  required List<int> hallIds,
+}) async {
+  final body = await _catalogRequest(
+    token: token,
+    method: 'PATCH',
+    path: '/api/admin/products/$productId',
+    payload: {
+      'name': name,
+      'description': description,
+      'value': value,
+      'ingredientIds': ingredientIds,
+      'hallIds': hallIds,
+    },
+  );
+  return CatalogProduct.fromJson(body['product'] as Map<String, dynamic>);
+}
+
+Future<void> deactivateMenuProduct({
+  required String token,
+  required int productId,
+}) async {
+  final endpoint = (await getLocalAdminBaseUri()).resolve(
+    '/api/admin/products/$productId',
+  );
+  final response = await http
+      .delete(endpoint, headers: {'authorization': 'Bearer $token'})
+      .timeout(const Duration(seconds: 12));
+  if (response.statusCode != 204) {
+    throw AdminRegistrationException(
+      'PRODUCT_DEACTIVATION_FAILED',
+      statusCode: response.statusCode,
+    );
+  }
+}
+
 Future<Map<String, dynamic>> _catalogRequest({
   required String token,
   required String method,

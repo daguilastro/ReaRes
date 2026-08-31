@@ -269,6 +269,16 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
 
   removeProductNameUniqueness(database);
 
+  const currentProductColumns = database.prepare(
+    'PRAGMA table_info(products)',
+  ).all() as Column[];
+  if (currentProductColumns.length > 0 &&
+      !currentProductColumns.some(({ name }) => name === 'is_active')) {
+    database.exec(
+      'ALTER TABLE products ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1));',
+    );
+  }
+
   const menuHallColumns = database.prepare('PRAGMA table_info(menu_halls)').all() as Column[];
   if (menuHallColumns.length > 0 && !menuHallColumns.some(({ name }) => name === 'is_primary')) {
     database.exec(

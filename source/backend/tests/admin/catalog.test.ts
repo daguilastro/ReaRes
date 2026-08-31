@@ -105,12 +105,25 @@ test('an admin builds menus with categories, products and room restrictions', as
   });
   assert.equal(productResponse.status, 201);
   const product = (await productResponse.json() as { product: {
-    description: string; categoryId: number; ingredientIds: number[]; hallIds: number[];
+    id: number; description: string; categoryId: number;
+    ingredientIds: number[]; hallIds: number[];
   } }).product;
   assert.equal(product.description, 'Creamy soup');
   assert.equal(product.categoryId, categoryId);
   assert.deepEqual(product.ingredientIds, [ingredientId]);
   assert.deepEqual(product.hallIds, [2]);
+
+  const updateResponse = await app.request(`/products/${product.id}`, {
+    method: 'PATCH', headers,
+    body: JSON.stringify({ name: 'Updated soup', description: 'New recipe',
+      value: 20500, ingredientIds: [], hallIds: [] }),
+  });
+  assert.equal(updateResponse.status, 200);
+  const updated = (await updateResponse.json() as {
+    product: { name: string; value: number };
+  }).product;
+  assert.equal(updated.name, 'Updated soup');
+  assert.equal(updated.value, 20500);
 
   const duplicateName = await app.request(`/menus/${menuId}/products`, {
     method: 'POST', headers,
@@ -148,6 +161,21 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.equal(special.isSpecial, true);
   assert.equal(special.subcategories.length, 0);
   assert.equal(catalog.ingredients.length, 1);
+
+  const deactivateResponse = await app.request(`/products/${product.id}`, {
+    method: 'DELETE', headers,
+  });
+  assert.equal(deactivateResponse.status, 204);
+  assert.equal((database.prepare(
+    'SELECT is_active AS active FROM products WHERE id = ?',
+  ).get(product.id) as { active: number }).active, 0);
+  const afterDeactivate = await app.request('/catalog', { headers });
+  const afterCatalog = await afterDeactivate.json() as { menus: Array<{
+    categories: Array<{ products: Array<{ id: number }> }>;
+  }> };
+  assert.equal(afterCatalog.menus[0].categories
+    .flatMap(({ products }) => products)
+    .some(({ id }) => id === product.id), false);
   database.close();
 });
 

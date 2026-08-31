@@ -39,6 +39,18 @@ typedef AddProduct =
       required List<int> ingredientIds,
       required List<int> hallIds,
     });
+typedef UpdateProduct =
+    Future<CatalogProduct> Function({
+      required String token,
+      required int productId,
+      required String name,
+      required String description,
+      required int value,
+      required List<int> ingredientIds,
+      required List<int> hallIds,
+    });
+typedef DeactivateProduct =
+    Future<void> Function({required String token, required int productId});
 
 class MenusPage extends StatefulWidget {
   const MenusPage({
@@ -51,6 +63,8 @@ class MenusPage extends StatefulWidget {
     this.addIngredient = createIngredient,
     this.addCategory = createMenuCategory,
     this.addProduct = createMenuProduct,
+    this.updateProduct = updateMenuProduct,
+    this.deactivateProduct = deactivateMenuProduct,
   });
   final bool spanish;
   final String token;
@@ -60,6 +74,8 @@ class MenusPage extends StatefulWidget {
   final AddIngredient addIngredient;
   final AddCategory addCategory;
   final AddProduct addProduct;
+  final UpdateProduct updateProduct;
+  final DeactivateProduct deactivateProduct;
   @override
   State<MenusPage> createState() => _MenusPageState();
 }
@@ -314,6 +330,7 @@ class _MenusPageState extends State<MenusPage> {
               children: [
                 for (final product in category.products)
                   ListTile(
+                    onTap: () => _editProduct(menu, product),
                     leading: const CircleAvatar(
                       backgroundColor: Color(0xFFE9EEF3),
                       child: Icon(
@@ -323,7 +340,14 @@ class _MenusPageState extends State<MenusPage> {
                     ),
                     title: Text(product.name),
                     subtitle: Text(product.description ?? ''),
-                    trailing: Text(formatPesos(product.value)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(formatPesos(product.value)),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.edit_outlined, size: 18),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -495,7 +519,64 @@ class _MenusPageState extends State<MenusPage> {
     );
   }
 
-  Future<void> _write(Future<Object> Function() action) async {
+  Future<void> _editProduct(RestaurantMenu menu, CatalogProduct product) async {
+    final draft = await showDialog<_ProductDraft>(
+      context: context,
+      builder: (_) => _ProductDialog(
+        spanish: _es,
+        ingredients: _catalog.ingredients,
+        secondaryRooms: _rooms
+            .where((room) => menu.secondaryHallIds.contains(room.id))
+            .toList(),
+        product: product,
+        onDeactivate: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(_es ? 'Desactivar producto' : 'Deactivate product'),
+              content: Text(
+                _es
+                    ? 'El producto dejará de aparecer en el menú, pero se conservará en el historial.'
+                    : 'The product will disappear from the menu, but remain in order history.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(_es ? 'Cancelar' : 'Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(_es ? 'Desactivar' : 'Deactivate'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true || !mounted) return;
+          Navigator.pop(context);
+          await _write(
+            () => widget.deactivateProduct(
+              token: widget.token,
+              productId: product.id,
+            ),
+          );
+        },
+      ),
+    );
+    if (draft == null) return;
+    await _write(
+      () => widget.updateProduct(
+        token: widget.token,
+        productId: product.id,
+        name: draft.name,
+        description: draft.description,
+        value: draft.value,
+        ingredientIds: draft.ingredientIds,
+        hallIds: draft.hallIds,
+      ),
+    );
+  }
+
+  Future<void> _write(Future<dynamic> Function() action) async {
     try {
       await action();
       if (mounted) await _load();
@@ -859,10 +940,14 @@ class _ProductDialog extends StatefulWidget {
     required this.spanish,
     required this.ingredients,
     required this.secondaryRooms,
+    this.product,
+    this.onDeactivate,
   });
   final bool spanish;
   final List<CatalogIngredient> ingredients;
   final List<RoomSummary> secondaryRooms;
+  final CatalogProduct? product;
+  final Future<void> Function()? onDeactivate;
   @override
   State<_ProductDialog> createState() => _ProductDialogState();
 }
@@ -874,6 +959,18 @@ class _ProductDialogState extends State<_ProductDialog> {
   final Set<int> _ingredients = {};
   final Set<int> _halls = {};
   @override
+  void initState() {
+    super.initState();
+    final product = widget.product;
+    if (product == null) return;
+    _name.text = product.name;
+    _description.text = product.description ?? '';
+    _price.text = product.value.toString();
+    _ingredients.addAll(product.ingredientIds);
+    _halls.addAll(product.hallIds);
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _description.dispose();
@@ -883,7 +980,11 @@ class _ProductDialogState extends State<_ProductDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.spanish ? 'Nuevo producto' : 'New product'),
+    title: Text(
+      widget.product == null
+          ? (widget.spanish ? 'Nuevo producto' : 'New product')
+          : (widget.spanish ? 'Editar producto' : 'Edit product'),
+    ),
     content: SizedBox(
       width: 520,
       child: SingleChildScrollView(
@@ -954,6 +1055,13 @@ class _ProductDialogState extends State<_ProductDialog> {
       ),
     ),
     actions: [
+      if (widget.product != null)
+        TextButton.icon(
+          onPressed: widget.onDeactivate,
+          icon: const Icon(Icons.delete_outline),
+          label: Text(widget.spanish ? 'Desactivar' : 'Deactivate'),
+          style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+        ),
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: Text(widget.spanish ? 'Cancelar' : 'Cancel'),
@@ -961,21 +1069,25 @@ class _ProductDialogState extends State<_ProductDialog> {
       FilledButton(
         key: const ValueKey('submit-product'),
         onPressed: () {
-          final price = double.tryParse(_price.text.replaceAll(',', '.'));
+          final price = int.tryParse(_price.text.replaceAll(' ', ''));
           if (_name.text.trim().length >= 2 && price != null && price >= 0) {
             Navigator.pop(
               context,
               _ProductDraft(
                 _name.text.trim(),
                 _description.text.trim(),
-                (price * 100).round(),
+                price,
                 _ingredients.toList(),
                 _halls.toList(),
               ),
             );
           }
         },
-        child: Text(widget.spanish ? 'Crear' : 'Create'),
+        child: Text(
+          widget.product == null
+              ? (widget.spanish ? 'Crear' : 'Create')
+              : (widget.spanish ? 'Guardar' : 'Save'),
+        ),
       ),
     ],
   );

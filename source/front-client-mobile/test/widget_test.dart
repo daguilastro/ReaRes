@@ -122,6 +122,7 @@ void main() {
           strings: AppStrings.fromLocale(const Locale('en')),
           initialChecks: completeChecksImmediately,
           reconnectCheck: () async => true,
+          restoreSession: () async => null,
         ),
       ),
     );

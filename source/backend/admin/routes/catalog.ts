@@ -204,6 +204,57 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     }
   });
 
+  routes.patch('/products/:productId', async (c) => {
+    const productId = positiveId(c.req.param('productId'));
+    if (!productId) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
+    const current = db().prepare(
+      'SELECT id FROM products WHERE id = ? AND is_active = 1',
+    ).get(productId);
+    if (!current) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
+    const body = await readJson(c);
+    if (body instanceof Response) return body;
+    const name = text(body.name, 2, 100);
+    const description = optionalText(body.description, 1000);
+    const value = body.value;
+    const ingredientIds = ids(body.ingredientIds);
+    const hallIds = ids(body.hallIds);
+    if (!name || description === undefined || !Number.isSafeInteger(value) ||
+        (value as number) < 0 || !ingredientIds || !hallIds ||
+        !allExist(db(), 'ingredients', ingredientIds)) {
+      return c.json({ error: 'INVALID_PRODUCT' }, 422);
+    }
+    const database = db();
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      database.prepare(
+        'UPDATE products SET name = ?, description = ?, value = ? WHERE id = ?',
+      ).run(name, description, value as number, productId);
+      database.prepare('DELETE FROM product_ingredients WHERE product_id = ?')
+        .run(productId);
+      database.prepare('DELETE FROM product_halls WHERE product_id = ?')
+        .run(productId);
+      insertRelations(database, 'product_ingredients', 'product_id', productId,
+        'ingredient_id', ingredientIds);
+      insertRelations(database, 'product_halls', 'product_id', productId,
+        'hall_id', hallIds);
+      database.exec('COMMIT');
+      return c.json({ product: readProduct(database, productId) });
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+      throw error;
+    }
+  });
+
+  routes.delete('/products/:productId', (c) => {
+    const productId = positiveId(c.req.param('productId'));
+    if (!productId) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
+    const result = db().prepare(
+      'UPDATE products SET is_active = 0 WHERE id = ? AND is_active = 1',
+    ).run(productId);
+    if (result.changes === 0) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
+    return c.body(null, 204);
+  });
+
   return routes;
 }
 
@@ -233,7 +284,8 @@ function readMenu(database: DatabaseSync, id: number) {
     parentCategoryId: row.parentCategoryId,
     isSpecial: row.isSpecial === 1,
     products: (database.prepare(
-      'SELECT id FROM products WHERE category_id = ? ORDER BY name COLLATE NOCASE',
+      `SELECT id FROM products
+       WHERE category_id = ? AND is_active = 1 ORDER BY name COLLATE NOCASE`,
     ).all(row.id) as Array<{ id: number }>).map(({ id: productId }) =>
       readProduct(database, productId)),
     subcategories: row.parentCategoryId === null
@@ -251,10 +303,12 @@ function readMenu(database: DatabaseSync, id: number) {
 function readProduct(database: DatabaseSync, id: number) {
   const product = database.prepare(
     `SELECT id, name, description, value, menu_id AS menuId,
-            category_id AS categoryId FROM products WHERE id = ?`,
+            category_id AS categoryId, is_active AS isActive
+     FROM products WHERE id = ?`,
   ).get(id) as JsonObject;
   return {
     ...product,
+    isActive: product.isActive === 1,
     ingredientIds: relationIds(database, 'product_ingredients', 'product_id', id, 'ingredient_id'),
     hallIds: relationIds(database, 'product_halls', 'product_id', id, 'hall_id'),
   };
