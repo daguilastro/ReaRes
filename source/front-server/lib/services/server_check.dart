@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 
 const _socketFilename = 'admin-port.sock';
+const _portFilename = 'admin-port.txt';
 
 class ServerNotFoundException implements Exception {
   const ServerNotFoundException();
@@ -28,9 +30,58 @@ Future<void> verifyLocalServerIsRunning() async {
 }
 
 Future<Uri> getLocalAdminBaseUri() async {
-  final socketPath = await _adminPortSocketPath();
-  final port = await _readAdminPort(socketPath);
+  final port = await _discoverAdminPort();
   return Uri(scheme: 'http', host: '127.0.0.1', port: port);
+}
+
+Future<int> _discoverAdminPort() async {
+  if (Platform.isAndroid) await _ensureSharedStorageAccess();
+  try {
+    return await _readAdminPortFile(_adminPortFilePath());
+  } on Object {
+    // Compatibilidad con servidores anteriores que solo publicaban el socket.
+    return _readAdminPort(await _adminPortSocketPath());
+  }
+}
+
+Future<void> _ensureSharedStorageAccess() async {
+  if (await Permission.manageExternalStorage.isGranted) return;
+  final manageStatus = await Permission.manageExternalStorage.request();
+  if (manageStatus.isGranted) return;
+
+  // Android 10 y versiones anteriores usan el permiso de almacenamiento
+  // tradicional en lugar de "administrar todos los archivos".
+  final storageStatus = await Permission.storage.request();
+  if (!storageStatus.isGranted) throw const ServerNotFoundException();
+}
+
+String _adminPortFilePath() {
+  if (Platform.isAndroid) {
+    return '/storage/emulated/0/Download/restaurante-app/$_portFilename';
+  }
+  if (!Platform.isLinux) throw const ServerNotFoundException();
+
+  final runtimeDirectory = Platform.environment['XDG_RUNTIME_DIR'];
+  if (runtimeDirectory != null && runtimeDirectory.isNotEmpty) {
+    return '$runtimeDirectory/restaurante-app/$_portFilename';
+  }
+  return '/tmp/restaurante-app-${_linuxUserIdSync()}/restaurante-app/'
+      '$_portFilename';
+}
+
+String _linuxUserIdSync() {
+  final userId = Platform.environment['UID'];
+  if (userId != null && RegExp(r'^\d+$').hasMatch(userId)) return userId;
+  // Esta rama solo se usa como fallback; el socket resolverá el UID de forma
+  // asíncrona si la variable no está disponible.
+  return 'unknown';
+}
+
+Future<int> _readAdminPortFile(String path) async {
+  final value = await File(
+    path,
+  ).readAsString().timeout(const Duration(seconds: 2));
+  return _parsePort(value);
 }
 
 Future<String> _adminPortSocketPath() async {
@@ -70,14 +121,18 @@ Future<int> _readAdminPort(String path) async {
         .transform(const LineSplitter())
         .first
         .timeout(const Duration(seconds: 2));
-    final port = int.tryParse(line.trim());
-    if (port == null || port < 1 || port > 65535) {
-      throw const ServerNotFoundException();
-    }
-    return port;
+    return _parsePort(line);
   } finally {
     await socket.close();
   }
+}
+
+int _parsePort(String value) {
+  final port = int.tryParse(value.trim());
+  if (port == null || port < 1 || port > 65535) {
+    throw const ServerNotFoundException();
+  }
+  return port;
 }
 
 Future<bool> _isAdminServer(int port) async {

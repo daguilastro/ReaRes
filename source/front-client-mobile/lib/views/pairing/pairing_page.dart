@@ -58,6 +58,7 @@ class PairingPage extends StatefulWidget {
 
 class _PairingPageState extends State<PairingPage> {
   bool _processing = false;
+  bool _scanning = false;
   String? _error;
   bool get _mobile => Platform.isAndroid || Platform.isIOS;
 
@@ -112,7 +113,9 @@ class _PairingPageState extends State<PairingPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(body: SafeArea(child: _mobile ? _camera() : _upload()));
+    return Scaffold(
+      body: SafeArea(child: _mobile && _scanning ? _camera() : _upload()),
+    );
   }
 
   Widget _camera() => Stack(
@@ -151,6 +154,25 @@ class _PairingPageState extends State<PairingPage> {
             fontSize: 21,
             fontWeight: FontWeight.w700,
             shadows: [Shadow(blurRadius: 8)],
+          ),
+        ),
+      ),
+      Positioned(
+        left: 18,
+        top: 18,
+        child: Material(
+          color: const Color(0x99000000),
+          shape: const CircleBorder(),
+          child: IconButton(
+            tooltip: widget.spanish ? 'Volver' : 'Back',
+            color: Colors.white,
+            onPressed: _processing
+                ? null
+                : () => setState(() {
+                    _scanning = false;
+                    _error = null;
+                  }),
+            icon: const Icon(Icons.arrow_back_rounded),
           ),
         ),
       ),
@@ -210,7 +232,11 @@ class _PairingPageState extends State<PairingPage> {
               const SizedBox(height: 9),
               Text(
                 widget.spanish
-                    ? 'Carga la imagen descargada desde la aplicación administrativa.'
+                    ? _mobile
+                          ? 'Carga una imagen del QR o escanéalo con la cámara.'
+                          : 'Carga la imagen descargada desde la aplicación administrativa.'
+                    : _mobile
+                    ? 'Upload a QR image or scan it with the camera.'
                     : 'Upload the image downloaded from the admin application.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0xFF6D7075), fontSize: 14),
@@ -239,6 +265,30 @@ class _PairingPageState extends State<PairingPage> {
                   ),
                 ),
               ),
+              if (_mobile) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  key: const ValueKey('scan-pairing-qr'),
+                  onPressed: _processing
+                      ? null
+                      : () => setState(() {
+                          _scanning = true;
+                          _error = null;
+                        }),
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: Text(
+                    widget.spanish ? 'Escanear con cámara' : 'Scan with camera',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF65788F),
+                    side: const BorderSide(color: Color(0xFF8798AC)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 18),
                 _ErrorCard(message: _error!),

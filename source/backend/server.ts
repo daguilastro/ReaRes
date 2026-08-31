@@ -91,6 +91,7 @@ async function startServer(): Promise<void> {
   adminPortSocket = await createAdminPortSocket(adminPort);
   console.log(`API administrativa: http://127.0.0.1:${adminPort}`);
   console.log(`Socket administrativo: ${adminPortSocket.path}`);
+  console.log(`Archivo de puerto administrativo: ${adminPortSocket.portFilePath}`);
 
   networkServer = serve(
     {
