@@ -333,19 +333,6 @@ BEGIN
 	THEN RAISE(ABORT, 'INVALID_SPECIAL_PRODUCT_PARENT') END;
 END;
 
-CREATE TRIGGER IF NOT EXISTS "order_items_special_requires_parent_insert"
-BEFORE INSERT ON "order_items"
-WHEN NEW."parent_order_item_id" IS NULL AND EXISTS (
-	SELECT 1 FROM "products" AS product
-	JOIN "menu_categories" AS category
-	  ON category."id" = product."category_id"
-	WHERE product."id" = NEW."product_id"
-	  AND category."is_special" = 1
-)
-BEGIN
-	SELECT RAISE(ABORT, 'SPECIAL_PRODUCT_PARENT_REQUIRED');
-END;
-
 CREATE TRIGGER IF NOT EXISTS "order_items_special_parent_update"
 BEFORE UPDATE OF "order_id", "product_id", "parent_order_item_id" ON "order_items"
 WHEN NEW."parent_order_item_id" IS NOT NULL
@@ -369,17 +356,4 @@ BEGIN
 		  AND child_category."is_special" = 1
 	)
 	THEN RAISE(ABORT, 'INVALID_SPECIAL_PRODUCT_PARENT') END;
-END;
-
-CREATE TRIGGER IF NOT EXISTS "order_items_special_requires_parent_update"
-BEFORE UPDATE OF "product_id", "parent_order_item_id" ON "order_items"
-WHEN NEW."parent_order_item_id" IS NULL AND EXISTS (
-	SELECT 1 FROM "products" AS product
-	JOIN "menu_categories" AS category
-	  ON category."id" = product."category_id"
-	WHERE product."id" = NEW."product_id"
-	  AND category."is_special" = 1
-)
-BEGIN
-	SELECT RAISE(ABORT, 'SPECIAL_PRODUCT_PARENT_REQUIRED');
 END;

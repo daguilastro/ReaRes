@@ -361,7 +361,7 @@ export function createDeviceApp(options: Options = {}) {
     if (!order) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
     }
-    const payload = await readOrderPayload(c, db(), roomId);
+    const payload = await readOrderPayload(c, db(), roomId, true);
     if (payload instanceof Response) return payload;
     const database = db();
     if (!updateKeepsDeliveredItems(database, orderId, payload.items)) {
@@ -372,6 +372,31 @@ export function createDeviceApp(options: Options = {}) {
     let activity: ActivityEvent | undefined;
     try {
       database.exec('BEGIN IMMEDIATE');
+      if (payload.items.length === 0) {
+        database.prepare('DELETE FROM order_modifications WHERE order_id = ?')
+          .run(orderId);
+        database.prepare('DELETE FROM order_items WHERE order_id = ?').run(orderId);
+        database.prepare('DELETE FROM removed_order_items WHERE order_id = ?')
+          .run(orderId);
+        database.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
+        updateLogicalTargetStatus(
+          database,
+          order.tableId,
+          order.tableGroupId,
+          'available',
+        );
+        activity = recordActivity(database, {
+          authorId: session.userId,
+          author: session.fullName,
+          roomId,
+          type: 'Pedido',
+          modification: `Eliminó el pedido pendiente de la mesa ${logicalTableLabel(database, order.tableId, order.tableGroupId)}`,
+        });
+        database.exec('COMMIT');
+        roomRealtimeHub.publishRoomOrdersChanged(roomId);
+        activityHub.publish(activity);
+        return c.json({ deleted: true });
+      }
       database.prepare('UPDATE orders SET description = ?, updated_at = ? WHERE id = ?')
         .run(payload.description, now, orderId);
       replaceOrderItems(database, orderId, payload.items);
@@ -419,20 +444,23 @@ export function createDeviceApp(options: Options = {}) {
     if (!roomId || !orderId || !employeeHasRoom(db(), session.userId, roomId)) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
     }
-    const statusConstraint = status === 'eating'
-      ? "o.status = 'waiting'"
-      : "o.status != 'closed'";
     const order = db().prepare(
       `SELECT o.table_id AS tableId, o.table_group_id AS tableGroupId, o.status FROM orders o
        JOIN hall_tables t ON t.id = o.table_id
-       WHERE o.id = ? AND t.hall_id = ? AND ${statusConstraint}`,
+       WHERE o.id = ? AND t.hall_id = ? AND o.status != 'closed'`,
     ).get(orderId, roomId) as {
       tableId: number; tableGroupId: number | null; status: string;
     } | undefined;
     if (!order) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
     }
-    if (status === 'eating' && orderHasPendingItems(db(), orderId)) {
+    if (status === 'eating' && order.status !== 'waiting') {
+      return c.json({ error: 'INVALID_ORDER_STATUS' }, 409);
+    }
+    if (status === 'closed' && order.status !== 'eating') {
+      return c.json({ error: 'ORDER_NOT_READY_TO_BILL' }, 409);
+    }
+    if (orderHasPendingItems(db(), orderId)) {
       return c.json({ error: 'ORDER_ITEMS_PENDING' }, 409);
     }
     const now = new Date().toISOString();
@@ -823,7 +851,12 @@ function logicalGroupSignature(database: DatabaseSync, roomId: number) {
   ).all(roomId));
 }
 
-async function readOrderPayload(c: any, database: DatabaseSync, roomId: number):
+async function readOrderPayload(
+  c: any,
+  database: DatabaseSync,
+  roomId: number,
+  allowEmpty = false,
+):
   Promise<{ description: string | null; items: OrderItemPayload[] } | Response> {
   let body: unknown;
   try { body = await c.req.json(); } catch { return c.json({ error: 'INVALID_JSON' }, 400); }
@@ -831,7 +864,7 @@ async function readOrderPayload(c: any, database: DatabaseSync, roomId: number):
     return c.json({ error: 'INVALID_ORDER' }, 422);
   }
   const data = body as Record<string, unknown>;
-  if (!Array.isArray(data.items) || data.items.length === 0) {
+  if (!Array.isArray(data.items) || (!allowEmpty && data.items.length === 0)) {
     return c.json({ error: 'ORDER_ITEMS_REQUIRED' }, 422);
   }
   const description = typeof data.description === 'string'
@@ -862,9 +895,6 @@ async function readOrderPayload(c: any, database: DatabaseSync, roomId: number):
       `SELECT c.is_special AS special FROM products p
        JOIN menu_categories c ON c.id = p.category_id WHERE p.id = ?`,
     ).get(productId) as { special: number } | undefined;
-    if (parentIndex === null && category?.special === 1) {
-      return c.json({ error: 'SPECIAL_PRODUCT_PARENT_REQUIRED' }, 422);
-    }
     if (parentIndex !== null) {
       const parentProductId = items[parentIndex]?.productId;
       const parentCategory = database.prepare(

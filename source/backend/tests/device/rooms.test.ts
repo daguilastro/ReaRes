@@ -141,17 +141,29 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   );
   assert.equal((await app.request('/rooms/2/menus', { headers })).status, 403);
 
-  const orphanSpecial = await app.request('/rooms/1/tables/2/orders', {
+  const standaloneSpecial = await app.request('/rooms/1/tables/2/orders', {
     method: 'POST', headers,
     body: JSON.stringify({ items: [
       { productId: 5, quantity: 1, specifications: '',
         removedIngredientIds: [], parentIndex: null },
     ] }),
   });
-  assert.equal(orphanSpecial.status, 422);
-  assert.deepEqual(await orphanSpecial.json(), {
-    error: 'SPECIAL_PRODUCT_PARENT_REQUIRED',
-  });
+  assert.equal(standaloneSpecial.status, 201);
+  const disposableOrder = await standaloneSpecial.json() as {
+    order: { id: number };
+  };
+  const deletedEmptyOrder = await app.request(
+    `/rooms/1/orders/${disposableOrder.order.id}`,
+    { method: 'PUT', headers, body: JSON.stringify({ items: [] }) },
+  );
+  assert.equal(deletedEmptyOrder.status, 200);
+  assert.deepEqual(await deletedEmptyOrder.json(), { deleted: true });
+  assert.equal((database.prepare(
+    'SELECT COUNT(*) AS count FROM orders WHERE id = ?',
+  ).get(disposableOrder.order.id) as { count: number }).count, 0);
+  assert.equal((database.prepare(
+    'SELECT status FROM hall_tables WHERE id = 2',
+  ).get() as { status: string }).status, 'available');
 
   const createdOrder = await app.request('/rooms/1/tables/1/orders', {
     method: 'POST', headers,
@@ -213,6 +225,14 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
     error: 'DELIVERED_ITEM_CANNOT_BE_REMOVED',
   });
 
+  const forbiddenEmptyOrder = await app.request(`/rooms/1/orders/${order.order.id}`, {
+    method: 'PUT', headers, body: JSON.stringify({ items: [] }),
+  });
+  assert.equal(forbiddenEmptyOrder.status, 409);
+  assert.deepEqual(await forbiddenEmptyOrder.json(), {
+    error: 'DELIVERED_ITEM_CANNOT_BE_REMOVED',
+  });
+
   const undoOriginalDelivery = await app.request(
     `/rooms/1/orders/${order.order.id}/items/${mainItem.id}/units/1/undo-delivery`,
     { method: 'PATCH', headers },
@@ -247,6 +267,14 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
     method: 'PATCH', headers, body: JSON.stringify({ status: 'eating' }),
   });
   assert.equal(prematureEating.status, 409);
+
+  const prematureBilling = await app.request(`/rooms/1/orders/${order.order.id}/status`, {
+    method: 'PATCH', headers, body: JSON.stringify({ status: 'closed' }),
+  });
+  assert.equal(prematureBilling.status, 409);
+  assert.deepEqual(await prematureBilling.json(), {
+    error: 'ORDER_NOT_READY_TO_BILL',
+  });
 
   const delivered = await app.request(
     `/rooms/1/orders/${order.order.id}/items/${modified.order.items[0].id}/units/0/deliver`,
@@ -359,7 +387,7 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   ]);
   assert.equal((database.prepare(
     "SELECT COUNT(*) AS count FROM activity_log WHERE type IN ('Pedido', 'Mesa', 'Mesas')",
-  ).get() as { count: number }).count, 10);
+  ).get() as { count: number }).count, 12);
 
   database.prepare(
     `INSERT INTO users (id, name, role, username, password_hash)

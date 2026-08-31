@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/client_order.dart';
+import '../../services/client_rooms_api.dart';
 import '../../utils/money.dart';
 
 class OrderEditorDialog extends StatefulWidget {
@@ -193,7 +194,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         .firstOrNull;
     if (current == null) {
       final roots = _categories
-          .where((item) => item.parentCategoryId == null && !item.isSpecial)
+          .where((item) => item.parentCategoryId == null)
           .toList();
       return ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
@@ -753,12 +754,21 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
           ),
       ]);
       if (mounted) Navigator.pop(context);
-    } on Object {
+    } on Object catch (error) {
       if (mounted) {
         setState(() {
-          _submitError = _es
-              ? 'No se pudo guardar el pedido.'
-              : 'The order could not be saved.';
+          final code = error is ClientRoomsException ? error.code : null;
+          _submitError = code == 'DELIVERED_ITEM_CANNOT_BE_REMOVED'
+              ? (_es
+                    ? 'No se pueden retirar productos que ya fueron entregados.'
+                    : 'Delivered products cannot be removed.')
+              : code == 'ORDER_ITEMS_REQUIRED'
+              ? (_es
+                    ? 'El servidor está desactualizado y todavía rechaza pedidos vacíos.'
+                    : 'The server is outdated and still rejects empty orders.')
+              : (_es
+                    ? 'No se pudo guardar el pedido${code == null ? '.' : ' ($code).'}'
+                    : 'The order could not be saved${code == null ? '.' : ' ($code).'}');
         });
       }
     } finally {
