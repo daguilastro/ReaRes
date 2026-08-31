@@ -362,6 +362,10 @@ function removeProductNameUniqueness(database: DatabaseSync): void {
   database.exec(`
     PRAGMA foreign_keys = OFF;
     BEGIN IMMEDIATE;
+    DROP TRIGGER IF EXISTS order_items_special_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_parent_update;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_update;
     CREATE TABLE products_without_name_uniqueness (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
