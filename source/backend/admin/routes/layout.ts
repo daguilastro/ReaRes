@@ -45,6 +45,7 @@ export function createAdminLayoutRoutes(options: Options = {}) {
          JOIN hall_tables t ON t.id = o.table_id
          LEFT JOIN order_items oi ON oi.order_id = o.id
          LEFT JOIN products p ON p.id = oi.product_id
+         WHERE o.status = 'closed'
          GROUP BY o.id
        )
        SELECT h.id, h.name,
@@ -80,7 +81,8 @@ export function createAdminLayoutRoutes(options: Options = {}) {
        FROM orders o
        LEFT JOIN order_items oi ON oi.order_id = o.id
        LEFT JOIN products p ON p.id = oi.product_id
-       WHERE o.created_at >= ? AND o.created_at < ?`,
+       WHERE o.status = 'closed'
+         AND o.updated_at >= ? AND o.updated_at < ?`,
     ).get(todayStart.toISOString(), tomorrow.toISOString()) as {
       sales: number; orders: number;
     };
@@ -91,14 +93,16 @@ export function createAdminLayoutRoutes(options: Options = {}) {
          FROM orders o
          LEFT JOIN order_items oi ON oi.order_id = o.id
          LEFT JOIN products p ON p.id = oi.product_id
-         WHERE o.created_at >= ? AND o.created_at < ?`,
+         WHERE o.status = 'closed'
+           AND o.updated_at >= ? AND o.updated_at < ?`,
       ).get(bucket.start.toISOString(), bucket.end.toISOString()) as { value: number }).value),
     }));
     const topProduct = db().prepare(
       `SELECT p.name, p.value, SUM(oi.quantity) AS quantity
        FROM orders o JOIN order_items oi ON oi.order_id = o.id
        JOIN products p ON p.id = oi.product_id
-       WHERE o.created_at >= ? AND o.created_at < ?
+       WHERE o.status = 'closed'
+         AND o.updated_at >= ? AND o.updated_at < ?
        GROUP BY p.id ORDER BY quantity DESC, p.name LIMIT 1`,
     ).get(todayStart.toISOString(), tomorrow.toISOString());
     const categories = db().prepare(
@@ -106,7 +110,8 @@ export function createAdminLayoutRoutes(options: Options = {}) {
        FROM orders o JOIN order_items oi ON oi.order_id = o.id
        JOIN products p ON p.id = oi.product_id
        JOIN menu_categories c ON c.id = p.category_id
-       WHERE o.created_at >= ? AND o.created_at < ?
+       WHERE o.status = 'closed'
+         AND o.updated_at >= ? AND o.updated_at < ?
        GROUP BY c.id ORDER BY value DESC LIMIT 4`,
     ).all(todayStart.toISOString(), tomorrow.toISOString());
     return c.json({

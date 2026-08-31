@@ -75,14 +75,42 @@ test('saves and loads a complete room layout atomically for an admin', async () 
   };
   assert.equal(loaded.tables[1].x, 240);
 
+  database.exec(`
+    INSERT INTO menu (id, name) VALUES (1, 'Principal');
+    INSERT INTO menu_categories (id, menu_id, name, is_special)
+      VALUES (1, 1, 'Platos', 0);
+    INSERT INTO products (id, name, value, menu_id, category_id)
+      VALUES (1, 'Producto', 5000, 1, 1);
+  `);
+  const now = new Date().toISOString();
+  const pendingOrder = database.prepare(
+    `INSERT INTO orders
+     (author_id, table_id, status, created_at, updated_at)
+     VALUES (1, ?, 'waiting', ?, ?)`,
+  ).run(payload.tables[0].id, now, now);
+  database.prepare(
+    `INSERT INTO order_items (order_id, product_id, quantity)
+     VALUES (?, 1, 10)`,
+  ).run(Number(pendingOrder.lastInsertRowid));
+  const closedOrder = database.prepare(
+    `INSERT INTO orders
+     (author_id, table_id, status, created_at, updated_at)
+     VALUES (1, ?, 'closed', ?, ?)`,
+  ).run(payload.tables[1].id, now, now);
+  database.prepare(
+    `INSERT INTO order_items
+     (order_id, product_id, quantity, delivered_quantity, status)
+     VALUES (?, 1, 2, 2, 'delivered')`,
+  ).run(Number(closedOrder.lastInsertRowid));
+
   const roomsResponse = await app.request('/rooms', { headers });
   assert.equal(roomsResponse.status, 200);
   const roomsPayload = await roomsResponse.json() as {
     rooms: Array<{ name: string; tableCount: number; orderCount: number; averageSale: number }>;
   };
   assert.deepEqual(roomsPayload.rooms[0], {
-    id: 1, name: 'Main Hall', tableCount: 2, orderCount: 0,
-    totalSales: 0, averageSale: 0,
+    id: 1, name: 'Main Hall', tableCount: 2, orderCount: 1,
+    totalSales: 10000, averageSale: 10000,
   });
   const overviewResponse = await app.request(
     '/overview?period=day&range=7',
@@ -93,9 +121,9 @@ test('saves and loads a complete room layout atomically for an admin', async () 
     salesToday: number; ordersToday: number; averageTicket: number;
     points: Array<{ label: string; value: number }>;
   };
-  assert.equal(overview.salesToday, 0);
-  assert.equal(overview.ordersToday, 0);
-  assert.equal(overview.averageTicket, 0);
+  assert.equal(overview.salesToday, 10000);
+  assert.equal(overview.ordersToday, 1);
+  assert.equal(overview.averageTicket, 10000);
   assert.equal(overview.points.length, 7);
   const createdRoom = await app.request('/rooms', {
     method: 'POST', headers, body: JSON.stringify({ name: 'Terraza' }),
