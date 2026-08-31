@@ -237,8 +237,12 @@ hace mediante QR. Después del handshake comprueba `/device/connection` con su
 certificado antes de guardar atómicamente IP, puerto, huella y si Node vive en el
 mismo dispositivo. En los siguientes arranques reutiliza ese endpoint con mTLS;
 para Termux en el mismo teléfono prueba loopback primero. Si la comprobación
-falla vuelve a ofrecer el QR. La reconexión solo descubre y autentica el servidor:
-la cuenta del empleado debe iniciar sesión de nuevo.
+falla vuelve a ofrecer el QR. Tras autenticar el servidor, el cliente lee el
+token de empleado desde el almacenamiento seguro y consulta `/auth/session`.
+El servidor solo restaura la cuenta si el token sigue vigente y la sesión está
+ligada al mismo certificado. Un rechazo explícito elimina el token local; una
+falla temporal de red lo conserva para el siguiente intento. Las sesiones duran
+12 horas con expiración absoluta.
 
 `admin-port.txt` utiliza un objeto JSON con `adminPort`, `deviceHost`,
 `devicePort` y `updatedAt`. Node revisa la IPv4 local cada tres segundos y

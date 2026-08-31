@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'views/auth/login_page.dart';
 import 'views/splash/splash_screen.dart';
+import 'models/client_user.dart';
+import 'services/client_auth_api.dart';
 import 'services/server_reconnect.dart';
 
 void main() => runApp(const RestaurantApp());
@@ -12,11 +14,15 @@ class RestaurantApp extends StatefulWidget {
     this.initialChecks = runInitialChecks,
     this.skipPairing = false,
     this.reconnectCheck = reconnectToPairedServer,
+    this.restoreSession = restoreStoredClientSession,
+    this.logout = logoutClient,
   });
 
   final Future<void> Function() initialChecks;
   final bool skipPairing;
   final Future<bool> Function() reconnectCheck;
+  final Future<ClientSession?> Function() restoreSession;
+  final Future<void> Function(ClientSession session) logout;
 
   @override
   State<RestaurantApp> createState() => _RestaurantAppState();
@@ -59,6 +65,8 @@ class _RestaurantAppState extends State<RestaurantApp>
         initialChecks: widget.initialChecks,
         skipPairing: widget.skipPairing,
         reconnectCheck: widget.reconnectCheck,
+        restoreSession: widget.restoreSession,
+        logout: widget.logout,
       ),
     );
   }

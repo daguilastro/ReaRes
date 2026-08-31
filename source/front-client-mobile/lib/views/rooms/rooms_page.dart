@@ -25,6 +25,7 @@ class RoomsPage extends StatefulWidget {
     this.loadRooms = getAssignedRooms,
     this.realtime,
     this.liveRoomBuilder,
+    this.onLogout,
   });
 
   final ClientSession session;
@@ -32,6 +33,7 @@ class RoomsPage extends StatefulWidget {
   final LoadAssignedRooms loadRooms;
   final ClientRealtimeService? realtime;
   final LiveRoomBuilder? liveRoomBuilder;
+  final Future<void> Function()? onLogout;
 
   @override
   State<RoomsPage> createState() => _RoomsPageState();
@@ -44,7 +46,18 @@ class _RoomsPageState extends State<RoomsPage> {
   StreamSubscription<ClientRealtimeEvent>? _events;
   List<ClientRoomSummary> _rooms = const [];
   bool _loading = true;
+  bool _loggingOut = false;
   String? _error;
+
+  Future<void> _logout() async {
+    if (_loggingOut || widget.onLogout == null) return;
+    setState(() => _loggingOut = true);
+    try {
+      await widget.onLogout!();
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
+  }
 
   @override
   void initState() {
@@ -138,6 +151,18 @@ class _RoomsPageState extends State<RoomsPage> {
           tooltip: widget.spanish ? 'Actualizar' : 'Refresh',
           icon: const Icon(Icons.refresh_rounded),
         ),
+        if (widget.onLogout != null)
+          IconButton(
+            key: const ValueKey('client-logout'),
+            onPressed: _loggingOut ? null : _logout,
+            tooltip: widget.spanish ? 'Cerrar sesión' : 'Sign out',
+            icon: _loggingOut
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout_rounded),
+          ),
         const SizedBox(width: 8),
       ],
     ),

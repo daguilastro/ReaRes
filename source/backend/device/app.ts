@@ -39,6 +39,7 @@ type EmployeeSession = {
   username: string;
   role: string;
   deviceId: number;
+  expiresAt: string;
 };
 
 type StoredTable = {
@@ -100,7 +101,7 @@ export function createDeviceApp(options: Options = {}) {
     if (!token) return undefined;
     return db().prepare(
       `SELECT u.id AS userId, u.name AS fullName, u.username, u.role,
-              s.device_id AS deviceId
+              s.device_id AS deviceId, s.expires_at AS expiresAt
        FROM employee_sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.device_id = ? AND s.expires_at > ?
@@ -202,6 +203,9 @@ export function createDeviceApp(options: Options = {}) {
     db().prepare('DELETE FROM employee_sessions WHERE expires_at <= ?')
       .run(now.toISOString());
     db().prepare(
+      'DELETE FROM employee_sessions WHERE user_id = ? AND device_id = ?',
+    ).run(user.id, paired.device.id);
+    db().prepare(
       `INSERT INTO employee_sessions
        (user_id, device_id, token_hash, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -217,6 +221,36 @@ export function createDeviceApp(options: Options = {}) {
         role: user.role,
       },
     });
+  });
+
+  app.get('/auth/session', (c) => {
+    const session = employeeSession(c);
+    if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
+    return c.json({
+      expiresAt: session.expiresAt,
+      user: {
+        id: session.userId,
+        fullName: session.fullName,
+        username: session.username,
+        role: session.role,
+      },
+    });
+  });
+
+  app.post('/auth/logout', (c) => {
+    const paired = pairedDevice(c);
+    if (!identityFor(c)) {
+      return c.json({ error: 'CLIENT_CERTIFICATE_REQUIRED' }, 401);
+    }
+    if (!paired) return c.json({ error: 'DEVICE_NOT_PAIRED' }, 403);
+    const token = c.req.header('authorization')
+      ?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1];
+    if (token) {
+      db().prepare(
+        'DELETE FROM employee_sessions WHERE token_hash = ? AND device_id = ?',
+      ).run(hash(token), paired.device.id);
+    }
+    return c.body(null, 204);
   });
 
   app.get('/rooms', (c) => {

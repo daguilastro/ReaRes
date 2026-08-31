@@ -19,6 +19,7 @@ import 'package:restaurante_front/utils/money.dart';
 Future<void> completeChecksImmediately() async {}
 Future<bool> reconnectFails() async => false;
 Future<bool> reconnectNeverFinishes() => Completer<bool>().future;
+Future<ClientSession?> restoreNoClientSession() async => null;
 
 void main() {
   test('formats stored pesos directly with spaces', () {
@@ -56,6 +57,7 @@ void main() {
       const RestaurantApp(
         initialChecks: completeChecksImmediately,
         skipPairing: true,
+        restoreSession: restoreNoClientSession,
       ),
     );
     await tester.pump(const Duration(milliseconds: 1500));
@@ -122,6 +124,7 @@ void main() {
           strings: AppStrings.fromLocale(const Locale('en')),
           initialChecks: completeChecksImmediately,
           reconnectCheck: () async => true,
+          restoreSession: restoreNoClientSession,
         ),
       ),
     );
@@ -129,6 +132,50 @@ void main() {
 
     expect(find.byType(LoginPage), findsOneWidget);
     expect(find.byType(PairingPage), findsNothing);
+  });
+
+  testWidgets('a valid stored session opens rooms and can log out', (
+    tester,
+  ) async {
+    final session = ClientSession(
+      token: 'stored-token',
+      expiresAt: DateTime.now().add(const Duration(hours: 12)),
+      user: const ClientUser(
+        id: 7,
+        fullName: 'Carlos Ruiz',
+        username: 'carlos',
+        role: 'waiter',
+      ),
+    );
+    var logoutCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SplashScreen(
+          strings: AppStrings.fromLocale(const Locale('en')),
+          initialChecks: completeChecksImmediately,
+          reconnectCheck: () async => true,
+          restoreSession: () async => session,
+          logout: (_) async => logoutCalls++,
+          roomsBuilder: (_, _, onLogout) => Scaffold(
+            body: TextButton(
+              key: const ValueKey('restored-session-logout'),
+              onPressed: onLogout,
+              child: const Text('Restored rooms'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+
+    expect(find.text('Restored rooms'), findsOneWidget);
+    expect(find.byType(LoginPage), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('restored-session-logout')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(logoutCalls, 1);
+    expect(find.byType(LoginPage), findsOneWidget);
   });
 
   testWidgets('a stalled mDNS reconnect falls back to desktop pairing', (
@@ -159,6 +206,7 @@ void main() {
       const RestaurantApp(
         initialChecks: completeChecksImmediately,
         skipPairing: true,
+        restoreSession: restoreNoClientSession,
       ),
     );
     await tester.pump(const Duration(milliseconds: 1500));
@@ -179,6 +227,7 @@ void main() {
       const RestaurantApp(
         initialChecks: completeChecksImmediately,
         skipPairing: true,
+        restoreSession: restoreNoClientSession,
       ),
     );
     await tester.pump(const Duration(milliseconds: 1500));

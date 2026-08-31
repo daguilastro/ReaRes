@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../services/client_identity.dart';
+import '../../services/client_auth_api.dart';
 import '../../models/client_user.dart';
 import '../auth/login_page.dart';
 import '../pairing/pairing_page.dart';
@@ -18,6 +19,13 @@ Future<void> runInitialChecks() async {
   ]);
 }
 
+typedef ClientRoomsBuilder =
+    Widget Function(
+      ClientSession session,
+      bool spanish,
+      Future<void> Function() onLogout,
+    );
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
     super.key,
@@ -26,6 +34,9 @@ class SplashScreen extends StatefulWidget {
     this.skipPairing = false,
     this.reconnectCheck = reconnectToPairedServer,
     this.reconnectTimeout = const Duration(seconds: 8),
+    this.restoreSession = restoreStoredClientSession,
+    this.logout = logoutClient,
+    this.roomsBuilder,
   });
 
   final AppStrings strings;
@@ -33,6 +44,9 @@ class SplashScreen extends StatefulWidget {
   final bool skipPairing;
   final Future<bool> Function() reconnectCheck;
   final Duration reconnectTimeout;
+  final Future<ClientSession?> Function() restoreSession;
+  final Future<void> Function(ClientSession session) logout;
+  final ClientRoomsBuilder? roomsBuilder;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -76,6 +90,9 @@ class _SplashScreenState extends State<SplashScreen>
               return false;
             },
           );
+      if (reconnected) {
+        _authenticatedSession = await widget.restoreSession();
+      }
     } on Object catch (error, stackTrace) {
       // Una comprobación fallida nunca debe dejar el splash bloqueado. La
       // pantalla de pairing podrá volver a crear/verificar la identidad.
@@ -85,9 +102,47 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     _pulseController.stop();
     setState(
-      () => _view = reconnected ? _StartupView.login : _StartupView.pairing,
+      () => _view = !reconnected
+          ? _StartupView.pairing
+          : _authenticatedSession == null
+          ? _StartupView.login
+          : _StartupView.rooms,
     );
   }
+
+  Future<void> _onPaired() async {
+    final restored = await widget.restoreSession();
+    if (!mounted) return;
+    setState(() {
+      _authenticatedSession = restored;
+      _view = restored == null ? _StartupView.login : _StartupView.rooms;
+    });
+  }
+
+  Future<void> _logout() async {
+    final session = _authenticatedSession;
+    if (session == null) return;
+    await widget.logout(session);
+    if (!mounted) return;
+    setState(() {
+      _authenticatedSession = null;
+      _loginIsFading = false;
+      _view = _StartupView.login;
+    });
+  }
+
+  Widget _rooms() =>
+      widget.roomsBuilder?.call(
+        _authenticatedSession!,
+        widget.strings.isSpanish,
+        _logout,
+      ) ??
+      RoomsPage(
+        key: _roomsKey,
+        session: _authenticatedSession!,
+        spanish: widget.strings.isSpanish,
+        onLogout: _logout,
+      );
 
   @override
   void dispose() {
@@ -111,22 +166,13 @@ class _SplashScreenState extends State<SplashScreen>
       transitionBuilder: (child, animation) =>
           _FadeOutTransition(animation: animation, child: child),
       child: _view == _StartupView.rooms
-          ? RoomsPage(
-              key: _roomsKey,
-              session: _authenticatedSession!,
-              spanish: widget.strings.isSpanish,
-            )
+          ? _rooms()
           : _view == _StartupView.login
           ? Stack(
               key: const ValueKey('login-stage'),
               fit: StackFit.expand,
               children: [
-                if (_authenticatedSession != null)
-                  RoomsPage(
-                    key: _roomsKey,
-                    session: _authenticatedSession!,
-                    spanish: widget.strings.isSpanish,
-                  ),
+                if (_authenticatedSession != null) _rooms(),
                 AnimatedOpacity(
                   opacity: _loginIsFading ? 0 : 1,
                   duration: const Duration(milliseconds: 560),
@@ -154,7 +200,7 @@ class _SplashScreenState extends State<SplashScreen>
           ? PairingPage(
               key: const ValueKey('pairing-screen'),
               spanish: widget.strings.isSpanish,
-              onPaired: () => setState(() => _view = _StartupView.login),
+              onPaired: _onPaired,
             )
           : Scaffold(
               key: const ValueKey('splash-screen'),
