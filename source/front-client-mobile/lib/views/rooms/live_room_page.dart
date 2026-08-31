@@ -755,7 +755,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         .where((candidate) => tableIds.contains(candidate.id))
         .map((candidate) => candidate.identifier)
         .join(' + ');
-    await showGeneralDialog<void>(
+    final editRequested = await showGeneralDialog<bool>(
       context: context,
       barrierDismissible: false,
       barrierLabel: 'Order delivery',
@@ -788,10 +788,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
             itemId: itemId,
             unitIndex: unitIndex,
           ),
+          onEditOrder: () => Navigator.pop(context, true),
         ),
       ),
     );
     await _reload();
+    if (editRequested == true && mounted) {
+      await _openOrderEditor(table.id);
+    }
   }
 
   Future<void> _openOrderEditor(int clickedTableId) async {
@@ -875,6 +879,22 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
             widget.spanish
                 ? 'No hay pedido activo para facturar.'
                 : 'There is no active order to bill.',
+          ),
+        ),
+      );
+      return;
+    }
+    final hasPendingItems = order.items.any(
+      (item) => item.deliveredQuantity < item.quantity,
+    );
+    if (order.status != 'eating' || hasPendingItems) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFB68232),
+          content: Text(
+            widget.spanish
+                ? 'Solo puedes facturar cuando todos los productos hayan sido entregados y la mesa esté comiendo.'
+                : 'You can only bill after every item is delivered and the table is eating.',
           ),
         ),
       );

@@ -398,6 +398,7 @@ void main() {
             return order();
           },
           onUndoDelivery: (itemId, unitIndex) async => order(),
+          onEditOrder: () {},
         ),
       ),
     );

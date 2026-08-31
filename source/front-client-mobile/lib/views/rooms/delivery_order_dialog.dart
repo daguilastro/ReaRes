@@ -10,6 +10,7 @@ class DeliveryOrderDialog extends StatefulWidget {
     required this.initialOrder,
     required this.onDeliver,
     required this.onUndoDelivery,
+    required this.onEditOrder,
   });
 
   final bool spanish;
@@ -17,6 +18,7 @@ class DeliveryOrderDialog extends StatefulWidget {
   final ClientOrder initialOrder;
   final Future<ClientOrder> Function(int itemId, int unitIndex) onDeliver;
   final Future<ClientOrder> Function(int itemId, int unitIndex) onUndoDelivery;
+  final VoidCallback onEditOrder;
 
   @override
   State<DeliveryOrderDialog> createState() => _DeliveryOrderDialogState();
@@ -114,6 +116,12 @@ class _DeliveryOrderDialogState extends State<DeliveryOrderDialog> {
               ? _undoLastDelivery
               : null,
           icon: const Icon(Icons.undo_rounded),
+        ),
+        IconButton(
+          key: const ValueKey('edit-pending-order'),
+          tooltip: _es ? 'Modificar pedido' : 'Edit order',
+          onPressed: _delivering.isEmpty ? widget.onEditOrder : null,
+          icon: const Icon(Icons.edit_outlined),
         ),
         IconButton(
           key: const ValueKey('close-order-delivery'),
