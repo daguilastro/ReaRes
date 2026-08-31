@@ -19,13 +19,6 @@ Future<bool> reconnectToPairedServer() async {
       return false;
     }
     final fingerprint = state['certificateFingerprint'] as String;
-    final savedHost = state['host'];
-    final savedPort = state['port'];
-    if (savedHost is String &&
-        savedPort is int &&
-        await _verifyCandidate(identity, savedHost, savedPort, fingerprint)) {
-      return true;
-    }
     final mdns = MDnsClient();
     await mdns.start().timeout(const Duration(seconds: 2));
     try {

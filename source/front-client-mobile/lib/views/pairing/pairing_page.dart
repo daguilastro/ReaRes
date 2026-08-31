@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -46,11 +47,13 @@ class PairingPage extends StatefulWidget {
     required this.spanish,
     required this.onPaired,
     this.handshake = completePairingHandshake,
+    this.handshakeTimeout = const Duration(seconds: 16),
   });
 
   final bool spanish;
   final VoidCallback onPaired;
   final Future<void> Function(PairingInvitation invitation) handshake;
+  final Duration handshakeTimeout;
 
   @override
   State<PairingPage> createState() => _PairingPageState();
@@ -80,7 +83,7 @@ class _PairingPageState extends State<PairingPage> {
       _error = null;
     });
     try {
-      await widget.handshake(invitation);
+      await widget.handshake(invitation).timeout(widget.handshakeTimeout);
       debugPrint('Pairing mTLS completado correctamente.');
       if (mounted) widget.onPaired();
     } on Object catch (error, stackTrace) {
@@ -89,26 +92,53 @@ class _PairingPageState extends State<PairingPage> {
       if (mounted) {
         setState(() {
           _processing = false;
-          _error = widget.spanish
-              ? 'No se pudo completar el emparejamiento.'
-              : 'The pairing could not be completed.';
+          _error = error is TimeoutException
+              ? widget.spanish
+                    ? 'El servidor no respondió. Verifica que siga encendido y que ambos dispositivos estén en la misma red.'
+                    : 'The server did not respond. Check that it is running and both devices are on the same network.'
+              : widget.spanish
+              ? 'No se pudo completar el emparejamiento. Genera un QR nuevo e inténtalo otra vez.'
+              : 'Pairing could not be completed. Generate a new QR and try again.';
         });
       }
     }
   }
 
   Future<void> _chooseQrImage() async {
-    final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(
-          label: 'QR image',
-          extensions: ['png', 'jpg', 'jpeg', 'webp'],
-        ),
-      ],
-    );
-    if (file == null) return;
-    debugPrint('Pairing QR: analizando ${file.name}.');
-    await _acceptRawValue(decodeQrImageBytes(await file.readAsBytes()));
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(
+            label: 'QR image',
+            extensions: ['png', 'jpg', 'jpeg', 'webp'],
+          ),
+        ],
+      );
+      if (file == null) return;
+      debugPrint('Pairing QR: analizando ${file.name}.');
+      final raw = decodeQrImageBytes(
+        await file.readAsBytes().timeout(const Duration(seconds: 8)),
+      );
+      if (raw == null && mounted) {
+        setState(() {
+          _error = widget.spanish
+              ? 'No se pudo leer un QR válido en esa imagen.'
+              : 'No valid QR code could be read from that image.';
+        });
+      }
+      await _acceptRawValue(raw);
+    } on Object catch (error, stackTrace) {
+      debugPrint('Pairing QR: no se pudo abrir la imagen: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        setState(() {
+          _processing = false;
+          _error = widget.spanish
+              ? 'No se pudo abrir o procesar la imagen.'
+              : 'The image could not be opened or processed.';
+        });
+      }
+    }
   }
 
   @override

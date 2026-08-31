@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -6,7 +8,6 @@ import '../../models/client_user.dart';
 import '../auth/login_page.dart';
 import '../pairing/pairing_page.dart';
 import '../../services/server_reconnect.dart';
-import '../../services/client_auth_api.dart';
 import '../rooms/rooms_page.dart';
 
 /// Punto único para las comprobaciones que deben terminar antes del login.
@@ -27,7 +28,6 @@ class SplashScreen extends StatefulWidget {
     this.skipPairing = false,
     this.reconnectCheck = reconnectToPairedServer,
     this.reconnectTimeout = const Duration(seconds: 8),
-    this.restoreSession = restoreClientSession,
   });
 
   final AppStrings strings;
@@ -35,7 +35,6 @@ class SplashScreen extends StatefulWidget {
   final bool skipPairing;
   final Future<bool> Function() reconnectCheck;
   final Duration reconnectTimeout;
-  final Future<ClientSession?> Function() restoreSession;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -70,15 +69,16 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       reconnected =
           widget.skipPairing ||
-          await widget.reconnectCheck().timeout(
-            widget.reconnectTimeout,
-            onTimeout: () {
-              debugPrint(
-                'La reconexión mDNS excedió ${widget.reconnectTimeout.inSeconds}s.',
-              );
-              return false;
-            },
-          );
+          (!Platform.isAndroid &&
+              await widget.reconnectCheck().timeout(
+                widget.reconnectTimeout,
+                onTimeout: () {
+                  debugPrint(
+                    'La reconexión mDNS excedió ${widget.reconnectTimeout.inSeconds}s.',
+                  );
+                  return false;
+                },
+              ));
     } on Object catch (error, stackTrace) {
       // Una comprobación fallida nunca debe dejar el splash bloqueado. La
       // pantalla de pairing podrá volver a crear/verificar la identidad.
@@ -87,24 +87,8 @@ class _SplashScreenState extends State<SplashScreen>
     }
     if (!mounted) return;
     _pulseController.stop();
-    if (reconnected) {
-      try {
-        _authenticatedSession = await widget.restoreSession().timeout(
-          const Duration(seconds: 1),
-          onTimeout: () => null,
-        );
-      } on Object catch (error) {
-        debugPrint('No se pudo restaurar la sesión: $error');
-        _authenticatedSession = null;
-      }
-      if (!mounted) return;
-    }
     setState(
-      () => _view = !reconnected
-          ? _StartupView.pairing
-          : _authenticatedSession == null
-          ? _StartupView.login
-          : _StartupView.rooms,
+      () => _view = reconnected ? _StartupView.login : _StartupView.pairing,
     );
   }
 

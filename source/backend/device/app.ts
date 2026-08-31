@@ -219,19 +219,6 @@ export function createDeviceApp(options: Options = {}) {
     });
   });
 
-  app.get('/auth/session', (c) => {
-    const session = employeeSession(c);
-    if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
-    return c.json({
-      user: {
-        id: session.userId,
-        fullName: session.fullName,
-        username: session.username,
-        role: session.role,
-      },
-    });
-  });
-
   app.get('/rooms', (c) => {
     const session = employeeSession(c);
     if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);

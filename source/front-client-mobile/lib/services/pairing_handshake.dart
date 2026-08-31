@@ -16,6 +16,8 @@ HttpClient createPinnedMtlsClient({
     ..useCertificateChain(identity.certificatePath)
     ..usePrivateKey(identity.privateKeyPath);
   final client = HttpClient(context: context);
+  client.connectionTimeout = const Duration(seconds: 6);
+  client.idleTimeout = const Duration(seconds: 10);
   client.badCertificateCallback =
       (certificate, certificateHost, certificatePort) {
         final actual = sha256
@@ -39,14 +41,15 @@ Future<void> completePairingHandshake(PairingInvitation invitation) async {
     fingerprint: invitation.certificateFingerprint,
   );
   try {
-    final request = await client.postUrl(
-      Uri(
-        scheme: 'https',
-        host: invitation.host,
-        port: invitation.port,
-        path: '/pairing/complete',
-      ),
+    final endpoint = Uri(
+      scheme: 'https',
+      host: invitation.host,
+      port: invitation.port,
+      path: '/pairing/complete',
     );
+    final request = await client
+        .postUrl(endpoint)
+        .timeout(const Duration(seconds: 8));
     request.headers.contentType = ContentType.json;
     request.write(
       jsonEncode({
@@ -56,7 +59,10 @@ Future<void> completePairingHandshake(PairingInvitation invitation) async {
       }),
     );
     final response = await request.close().timeout(const Duration(seconds: 10));
-    final body = await utf8.decoder.bind(response).join();
+    final body = await utf8.decoder
+        .bind(response)
+        .join()
+        .timeout(const Duration(seconds: 6));
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException('Pairing failed (${response.statusCode}): $body');
     }
