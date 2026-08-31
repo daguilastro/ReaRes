@@ -93,7 +93,7 @@ Future<List<ClientOrder>> getTodayRoomOrders({
       .toList();
 }
 
-Future<ClientOrder> saveTableOrder({
+Future<void> saveTableOrder({
   required ClientSession session,
   required int roomId,
   required int tableId,
@@ -102,7 +102,7 @@ Future<ClientOrder> saveTableOrder({
   required List<OrderItemWrite> items,
 }) async {
   final creating = orderId == null;
-  final body = await _requestJson(
+  await _requestJson(
     session: session,
     method: creating ? 'POST' : 'PUT',
     path: creating
@@ -114,7 +114,6 @@ Future<ClientOrder> saveTableOrder({
     },
     expectedStatus: creating ? HttpStatus.created : HttpStatus.ok,
   );
-  return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
 }
 
 Future<ClientOrder> markOrderEating({

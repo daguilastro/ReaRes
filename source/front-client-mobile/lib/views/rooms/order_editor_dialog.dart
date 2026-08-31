@@ -681,16 +681,35 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             FilledButton.icon(
               key: const ValueKey('submit-order'),
               onPressed:
-                  _saving || !_lines.values.any((line) => line.quantity > 0)
+                  _saving ||
+                      (widget.existingOrder == null &&
+                          !_lines.values.any((line) => line.quantity > 0))
                   ? null
                   : _submit,
+              style:
+                  widget.existingOrder != null &&
+                      !_lines.values.any((line) => line.quantity > 0)
+                  ? FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFB64A4A),
+                    )
+                  : null,
               icon: _saving
                   ? const SizedBox.square(
                       dimension: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.send_outlined),
-              label: Text(_es ? 'Enviar' : 'Send'),
+                  : Icon(
+                      widget.existingOrder != null &&
+                              !_lines.values.any((line) => line.quantity > 0)
+                          ? Icons.delete_outline
+                          : Icons.send_outlined,
+                    ),
+              label: Text(
+                widget.existingOrder != null &&
+                        !_lines.values.any((line) => line.quantity > 0)
+                    ? (_es ? 'Eliminar pedido' : 'Delete order')
+                    : (_es ? 'Enviar' : 'Send'),
+              ),
             ),
           ],
         ),

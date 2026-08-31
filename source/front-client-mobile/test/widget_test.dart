@@ -584,4 +584,78 @@ void main() {
     expect(submitted, hasLength(1));
     expect(submitted!.single.quantity, 1);
   });
+
+  testWidgets('an entirely pending order can be submitted empty', (
+    tester,
+  ) async {
+    List<OrderItemWrite>? submitted;
+    const product = ClientMenuProduct(
+      id: 20,
+      name: 'Hamburguesa',
+      description: null,
+      value: 18000,
+      ingredients: [],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OrderEditorDialog(
+          spanish: true,
+          tableLabel: '4',
+          menus: const [
+            ClientRoomMenu(
+              id: 1,
+              name: 'Principal',
+              isPrimary: true,
+              categories: [
+                ClientMenuCategory(
+                  id: 10,
+                  name: 'Platos',
+                  parentCategoryId: null,
+                  isSpecial: false,
+                  products: [product],
+                ),
+              ],
+            ),
+          ],
+          existingOrder: const ClientOrder(
+            id: 8,
+            tableId: 4,
+            tableGroupId: null,
+            status: 'waiting',
+            description: null,
+            items: [
+              ClientOrderItem(
+                id: 80,
+                productId: 20,
+                name: 'Hamburguesa',
+                productDescription: null,
+                quantity: 1,
+                deliveredQuantity: 0,
+                deliveredUnitIndexes: [],
+                status: 'ordered',
+                specifications: null,
+                parentOrderItemId: null,
+                removedIngredientIds: [],
+                ingredients: [],
+              ),
+            ],
+          ),
+          onSubmit: (_, items) async => submitted = items,
+        ),
+      ),
+    );
+
+    final line = find.byKey(const ValueKey('selected-order-line-existing:80'));
+    await tester.tap(
+      find.descendant(
+        of: line,
+        matching: find.byIcon(Icons.remove_circle_outline),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Eliminar pedido'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('submit-order')));
+    await tester.pumpAndSettle();
+    expect(submitted, isEmpty);
+  });
 }

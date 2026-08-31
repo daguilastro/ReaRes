@@ -41,7 +41,7 @@ typedef LoadRoomMenus =
       required int roomId,
     });
 typedef WriteTableOrder =
-    Future<ClientOrder> Function({
+    Future<void> Function({
       required ClientSession session,
       required int roomId,
       required int tableId,
