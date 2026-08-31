@@ -1,3 +1,9 @@
 node_modules/
 npm-debug.log*
 backups/
+
+# SQLite runtime databases and transient journal files.
+# The database is generated from db/schheme.sql at startup.
+db/*.sqlite
+db/*.sqlite-wal
+db/*.sqlite-shm
