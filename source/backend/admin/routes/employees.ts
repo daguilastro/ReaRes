@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import { hashPassword } from './register';
 import { roomRealtimeHub } from '../../shared/roomRealtime';
+import { openApplicationDatabase } from '../../shared/schemaMigration';
 
 const ALLOWED_ROLES = new Set(['waiter', 'kitchen', 'cashier', 'manager']);
 type Options = { database?: DatabaseSync };
@@ -19,8 +19,7 @@ export function createAdminEmployeeRoutes(options: Options = {}) {
   const routes = new Hono();
   let database = options.database;
   const db = () => {
-    database ??= new DatabaseSync(join(process.cwd(), 'db', 'restaurant.sqlite'));
-    database.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    database ??= openApplicationDatabase();
     return database;
   };
 

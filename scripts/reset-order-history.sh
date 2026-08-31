@@ -6,8 +6,9 @@ SCRIPT_DIRECTORY=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_DIRECTORY=$(dirname -- "$SCRIPT_DIRECTORY")
 STATE_DIRECTORY=${XDG_STATE_HOME:-"$HOME/.local/state"}/restaurante-app
 PID_FILE="$STATE_DIRECTORY/server.pid"
-DATABASE_FILE=${RESTAURANTE_DB_FILE:-"$PROJECT_DIRECTORY/db/restaurant.sqlite"}
-BACKUP_DIRECTORY=${RESTAURANTE_BACKUP_DIR:-"$PROJECT_DIRECTORY/backups"}
+DATA_HOME=${XDG_DATA_HOME:-"$HOME/.local/share"}
+DATABASE_FILE=${RESTAURANTE_DB_FILE:-"$DATA_HOME/restaurante-app/restaurant.sqlite"}
+BACKUP_DIRECTORY=${RESTAURANTE_BACKUP_DIR:-"$DATA_HOME/restaurante-app/backups"}
 BACKUP_FILE="$BACKUP_DIRECTORY/restaurant-before-history-reset-$(date +%Y%m%d-%H%M%S).sqlite"
 SERVER_WAS_RUNNING=0
 

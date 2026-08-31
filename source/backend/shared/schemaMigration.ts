@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  applicationDatabasePath,
+  migrateLegacyApplicationDatabase,
+} from './databasePath';
 
 type Column = { name: string; type: string };
 
@@ -494,7 +498,12 @@ export function ensureOrderSchema(database: DatabaseSync): void {
 }
 
 export function openApplicationDatabase(): DatabaseSync {
-  const database = new DatabaseSync(join(process.cwd(), 'db', 'restaurant.sqlite'));
+  const databasePath = applicationDatabasePath();
+  const migrated = migrateLegacyApplicationDatabase(databasePath);
+  if (migrated) {
+    console.log(`Base de datos migrada a: ${databasePath}`);
+  }
+  const database = new DatabaseSync(databasePath);
   database.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   database.exec(readFileSync(join(process.cwd(), 'db', 'schheme.sql'), 'utf8'));
   ensureLayoutSchema(database);

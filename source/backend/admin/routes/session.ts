@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import { verifyPassword } from '../../shared/password';
+import { openApplicationDatabase } from '../../shared/schemaMigration';
 
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 
@@ -20,8 +20,7 @@ export function createAdminSessionRoutes(options: Options = {}) {
   const routes = new Hono();
   let database = options.database;
   const db = () => {
-    database ??= new DatabaseSync(join(process.cwd(), 'db', 'restaurant.sqlite'));
-    database.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    database ??= openApplicationDatabase();
     return database;
   };
 

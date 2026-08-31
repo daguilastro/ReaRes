@@ -1,8 +1,8 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import { getPairingRuntime } from '../../shared/pairingRuntime';
+import { openApplicationDatabase } from '../../shared/schemaMigration';
 
 const PAIRING_DURATION_MS = 2 * 60 * 1000;
 type Options = { database?: DatabaseSync };
@@ -14,8 +14,7 @@ export function createAdminPairDeviceRoutes(options: Options = {}) {
   const routes = new Hono();
   let database = options.database;
   const db = () => {
-    database ??= new DatabaseSync(join(process.cwd(), 'db', 'restaurant.sqlite'));
-    database.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    database ??= openApplicationDatabase();
     return database;
   };
 

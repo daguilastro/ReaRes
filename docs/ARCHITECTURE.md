@@ -236,7 +236,23 @@ El puerto de red puede cambiar después de reiniciar el backend. Por ello, el cl
 
 ### 5.1 Ubicación y apertura
 
-Durante desarrollo la base está en `db/restaurant.sqlite`. Esta ruta es deliberadamente temporal; antes de distribuir el producto debe moverse a un directorio de datos del sistema.
+Las APIs administrativa y de dispositivos comparten una única base fuera del
+repositorio:
+
+```text
+${RESTAURANTE_DB_FILE}
+```
+
+Si `RESTAURANTE_DB_FILE` no está definido, se utiliza:
+
+```text
+${XDG_DATA_HOME:-$HOME/.local/share}/restaurante-app/restaurant.sqlite
+```
+
+Esto aplica tanto a Linux de escritorio como a Termux. En la primera ejecución
+posterior a la migración, si el destino todavía no existe, el backend copia
+automáticamente `db/restaurant.sqlite` y su bundle WAL/SHM. Una base existente
+en la ruta genérica nunca se sobrescribe.
 
 Cada apertura habilita:
 
@@ -249,7 +265,7 @@ PRAGMA foreign_keys = ON;
 
 ### 5.2 Archivos WAL y SHM
 
-`restaurant.sqlite-wal` contiene cambios recientes del modo write-ahead logging. `restaurant.sqlite-shm` coordina lectores y escritores. Son archivos normales de SQLite, pueden aparecer mientras existe una conexión y no deben borrarse con el servidor activo. Para respaldar la base se debe cerrar el servidor o utilizar la API de backup/checkpoint de SQLite.
+`restaurant.sqlite-wal` contiene cambios recientes del modo write-ahead logging. `restaurant.sqlite-shm` coordina lectores y escritores. Son archivos normales de SQLite, pueden aparecer junto a la base en el directorio genérico mientras existe una conexión y no deben borrarse con el servidor activo. Para respaldar la base se debe cerrar el servidor o utilizar la API de backup/checkpoint de SQLite.
 
 ### 5.3 Tablas actuales
 
