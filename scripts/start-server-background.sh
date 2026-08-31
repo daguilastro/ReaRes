@@ -52,7 +52,6 @@ fi
 rm -f "$PID_FILE"
 
 cd "$PROJECT_DIRECTORY"
-node scripts/backup-before-peso-normalization.mjs
 
 if command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock
