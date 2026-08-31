@@ -131,6 +131,30 @@ void main() {
     expect(find.byType(PairingPage), findsNothing);
   });
 
+  testWidgets('Android always opens pairing without attempting mDNS', (
+    tester,
+  ) async {
+    var reconnectAttempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SplashScreen(
+          strings: AppStrings.fromLocale(const Locale('en')),
+          initialChecks: completeChecksImmediately,
+          alwaysPairOnStartup: true,
+          reconnectCheck: () async {
+            reconnectAttempts++;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(reconnectAttempts, 0);
+    expect(find.byType(PairingPage), findsOneWidget);
+    expect(find.byType(LoginPage), findsNothing);
+  });
+
   testWidgets('a stalled mDNS reconnect falls back to desktop pairing', (
     tester,
   ) async {

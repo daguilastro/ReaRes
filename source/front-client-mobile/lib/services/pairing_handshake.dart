@@ -6,6 +6,16 @@ import 'package:crypto/crypto.dart';
 import 'client_identity.dart';
 import '../models/pairing_invitation.dart';
 
+class PairingHandshakeException implements Exception {
+  const PairingHandshakeException(this.code, [this.details]);
+
+  final String code;
+  final String? details;
+
+  @override
+  String toString() => details == null ? code : '$code: $details';
+}
+
 HttpClient createPinnedMtlsClient({
   required ClientIdentity identity,
   required String host,
@@ -41,14 +51,14 @@ Future<void> completePairingHandshake(PairingInvitation invitation) async {
     fingerprint: invitation.certificateFingerprint,
   );
   try {
-    final endpoint = Uri(
+    final pairingEndpoint = Uri(
       scheme: 'https',
       host: invitation.host,
       port: invitation.port,
       path: '/pairing/complete',
     );
     final request = await client
-        .postUrl(endpoint)
+        .postUrl(pairingEndpoint)
         .timeout(const Duration(seconds: 8));
     request.headers.contentType = ContentType.json;
     request.write(
@@ -64,19 +74,72 @@ Future<void> completePairingHandshake(PairingInvitation invitation) async {
         .join()
         .timeout(const Duration(seconds: 6));
     if (response.statusCode != HttpStatus.ok) {
-      throw HttpException('Pairing failed (${response.statusCode}): $body');
+      throw PairingHandshakeException(
+        'PAIRING_REJECTED',
+        '${response.statusCode}: $body',
+      );
     }
-    await File(
-      '${identity.directory}${Platform.pathSeparator}paired-server.json',
-    ).writeAsString(
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic> || decoded['paired'] != true) {
+      throw const PairingHandshakeException('INVALID_PAIRING_RESPONSE');
+    }
+
+    // No avanzamos al login hasta demostrar que el mismo certificado ya fue
+    // persistido y aceptado por las rutas mTLS normales del servidor.
+    final verification = await client
+        .getUrl(
+          Uri(
+            scheme: 'https',
+            host: invitation.host,
+            port: invitation.port,
+            path: '/device/connection',
+          ),
+        )
+        .timeout(const Duration(seconds: 8));
+    final verificationResponse = await verification.close().timeout(
+      const Duration(seconds: 10),
+    );
+    final verificationBody = await utf8.decoder
+        .bind(verificationResponse)
+        .join()
+        .timeout(const Duration(seconds: 6));
+    if (verificationResponse.statusCode != HttpStatus.ok) {
+      throw PairingHandshakeException(
+        'PAIRING_NOT_CONFIRMED',
+        '${verificationResponse.statusCode}: $verificationBody',
+      );
+    }
+
+    await _savePairedServer(identity, invitation);
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<void> _savePairedServer(
+  ClientIdentity identity,
+  PairingInvitation invitation,
+) async {
+  final separator = Platform.pathSeparator;
+  final destination = File(
+    '${identity.directory}${separator}paired-server.json',
+  );
+  final temporary = File(
+    '${destination.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+  );
+  try {
+    await temporary.writeAsString(
       jsonEncode({
+        'version': 1,
         'host': invitation.host,
         'port': invitation.port,
         'certificateFingerprint': invitation.certificateFingerprint,
+        'pairedAt': DateTime.now().toUtc().toIso8601String(),
       }),
       flush: true,
     );
+    await temporary.rename(destination.path);
   } finally {
-    client.close(force: true);
+    if (await temporary.exists()) await temporary.delete();
   }
 }

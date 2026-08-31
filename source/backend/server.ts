@@ -8,7 +8,7 @@ import adminApp from './admin/app';
 import { createAdminPortSocket, type AdminPortSocket } from './admin/infrastructure/portSocket';
 import app from './device/app';
 import { ensureServerIdentity } from './shared/serverIdentity';
-import { setPairingRuntime } from './shared/pairingRuntime';
+import { clearPairingRuntime, setPairingRuntime } from './shared/pairingRuntime';
 import { openApplicationDatabase } from './shared/schemaMigration';
 
 const SERVICE_NAME = 'Restaurante';
@@ -43,7 +43,13 @@ async function startServer(): Promise<void> {
     readFile(identity.keyPath, 'utf8'),
     readFile(identity.certificatePath, 'utf8'),
   ]);
-  const networkHost = localIpv4Address();
+  let networkHost: string | undefined;
+  try {
+    networkHost = localIpv4Address();
+  } catch {
+    // La API administrativa puede iniciar sin red; el monitor publicará el
+    // endpoint de dispositivos cuando aparezca una IPv4 utilizable.
+  }
   const bonjour = new Bonjour(undefined, (error: unknown) => {
     console.error('Error de mDNS:', error);
   });
@@ -52,11 +58,15 @@ async function startServer(): Promise<void> {
   let networkServer: ServerType;
   let adminServer: ServerType;
   let adminPortSocket: AdminPortSocket;
+  let devicePort: number | undefined;
+  let networkMonitor: NodeJS.Timeout | undefined;
   let isShuttingDown = false;
 
   const shutdown = (signal: NodeJS.Signals) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    if (networkMonitor) clearInterval(networkMonitor);
+    clearPairingRuntime();
     console.log(`\n${signal}: cerrando servidor...`);
 
     bonjour.unpublishAll(() => {
@@ -110,11 +120,19 @@ async function startServer(): Promise<void> {
       port: 0,
     },
     ({ port }) => {
-      setPairingRuntime({
-        host: networkHost,
-        port,
-        certificateFingerprint: identity.fingerprint,
-      });
+      devicePort = port;
+      if (networkHost) {
+        setPairingRuntime({
+          host: networkHost,
+          port,
+          certificateFingerprint: identity.fingerprint,
+        });
+      }
+      void adminPortSocket.updateDeviceEndpoint(networkHost ?? null, port).catch(
+        (error: unknown) => console.error(
+          'No se pudo actualizar el endpoint de dispositivos:', error,
+        ),
+      );
       bonjour.publish({
         name: SERVICE_NAME,
         type: SERVICE_TYPE,
@@ -130,10 +148,47 @@ async function startServer(): Promise<void> {
       console.log(`Entorno detectado: ${identity.environment}`);
       console.log(`Certificado: ${identity.certificatePath}`);
       console.log(`Huella SHA-256: ${identity.fingerprint}`);
-      console.log(`API para dispositivos: https://${networkHost}:${port}`);
+      console.log(networkHost
+        ? `API para dispositivos: https://${networkHost}:${port}`
+        : `API para dispositivos escuchando en puerto ${port}; esperando red local.`);
       console.log(`mDNS: ${SERVICE_NAME}._${SERVICE_TYPE}._tcp.local`);
     },
   );
+
+  // El listener mantiene su puerto mientras el proceso vive, pero la IP puede
+  // cambiar al alternar entre redes. El archivo compartido y los QR nuevos
+  // deben reflejar siempre el endpoint más reciente.
+  networkMonitor = setInterval(() => {
+    let currentHost: string;
+    try {
+      currentHost = localIpv4Address();
+    } catch {
+      if (networkHost !== undefined && devicePort !== undefined) {
+        networkHost = undefined;
+        clearPairingRuntime();
+        void adminPortSocket.updateDeviceEndpoint(null, devicePort).catch(
+          (error: unknown) => console.error(
+            'No se pudo retirar el endpoint de dispositivos:', error,
+          ),
+        );
+      }
+      return;
+    }
+    if (currentHost === networkHost || devicePort === undefined) return;
+    networkHost = currentHost;
+    setPairingRuntime({
+      host: networkHost,
+      port: devicePort,
+      certificateFingerprint: identity.fingerprint,
+    });
+    void adminPortSocket.updateDeviceEndpoint(networkHost, devicePort).catch(
+      (error: unknown) => console.error(
+        'No se pudo actualizar el endpoint de dispositivos:', error,
+      ),
+    );
+    console.log(`Nuevo endpoint para dispositivos: https://${networkHost}:${devicePort}`);
+  }, 3000);
+  networkMonitor.unref();
 
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);

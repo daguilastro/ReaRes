@@ -766,6 +766,13 @@ export function createDeviceApp(options: Options = {}) {
     const now = new Date().toISOString();
     try {
       db().exec('BEGIN IMMEDIATE');
+      const consumed = db().prepare(
+        `UPDATE device_pairing_requests SET used_at = ?
+         WHERE id = ? AND used_at IS NULL AND expires_at > ?`,
+      ).run(now, pairingId, now);
+      if (consumed.changes !== 1) {
+        throw new Error('PAIRING_ALREADY_USED');
+      }
       db().prepare(
         `INSERT INTO paired_devices
          (name, certificate_fingerprint, certificate_serial, certificate_pem, paired_at)
@@ -776,12 +783,12 @@ export function createDeviceApp(options: Options = {}) {
            revoked_at = NULL`,
       ).run(deviceName || 'Restaurant client', identity.fingerprint,
         identity.serialNumber, identity.certificatePem, now);
-      db().prepare(
-        'UPDATE device_pairing_requests SET used_at = ? WHERE id = ? AND used_at IS NULL',
-      ).run(now, pairingId);
       db().exec('COMMIT');
     } catch (error) {
       try { db().exec('ROLLBACK'); } catch { /* No había transacción activa. */ }
+      if (String(error).includes('PAIRING_ALREADY_USED')) {
+        return c.json({ error: 'INVALID_OR_EXPIRED_PAIRING' }, 401);
+      }
       console.error('No se pudo completar el emparejamiento:', error);
       return c.json({ error: 'PAIRING_FAILED' }, 500);
     }

@@ -5,6 +5,14 @@ import { dirname, join } from 'node:path';
 const SOCKET_FILENAME = 'admin-port.sock';
 const PORT_FILENAME = 'admin-port.txt';
 
+type RuntimeFileState = {
+  version: 1;
+  adminPort: number;
+  deviceHost: string | null;
+  devicePort: number | null;
+  updatedAt: string;
+};
+
 function isTermuxAndroid(): boolean {
   const prefix = process.env.PREFIX ?? '';
   return (
@@ -44,10 +52,16 @@ export function getAdminPortFilePath(): string {
   return join(runtimeDirectory, 'restaurante-app', PORT_FILENAME);
 }
 
-async function writePortFile(path: string, port: number): Promise<void> {
+async function writePortFile(
+  path: string,
+  state: RuntimeFileState,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporaryPath = `${path}.${process.pid}.tmp`;
-  await writeFile(temporaryPath, `${port}\n`, { encoding: 'utf8', mode: 0o600 });
+  await writeFile(temporaryPath, `${JSON.stringify(state)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
   await rename(temporaryPath, path);
   await chmod(path, 0o600).catch(() => {
     // El almacenamiento compartido emulado de Android no implementa chmod.
@@ -85,6 +99,10 @@ export type AdminPortSocket = {
   path: string;
   portFilePath: string;
   server: Server;
+  updateDeviceEndpoint: (
+    host: string | null,
+    port: number | null,
+  ) => Promise<void>;
   close: () => Promise<void>;
 };
 
@@ -118,14 +136,38 @@ export async function createAdminPortSocket(
     });
   });
   await chmod(path, 0o600);
-  await writePortFile(portFilePath, port);
+  let deviceHost: string | null = null;
+  let devicePort: number | null = null;
+  let pendingWrite = Promise.resolve();
+  const persistRuntime = () => {
+    const state: RuntimeFileState = {
+      version: 1,
+      adminPort: port,
+      deviceHost,
+      devicePort,
+      updatedAt: new Date().toISOString(),
+    };
+    pendingWrite = pendingWrite.catch(() => {
+      // Una escritura fallida no debe bloquear permanentemente las siguientes.
+    }).then(() => writePortFile(portFilePath, state));
+    return pendingWrite;
+  };
+  await persistRuntime();
 
   return {
     path,
     portFilePath,
     server,
+    updateDeviceEndpoint: async (host, networkPort) => {
+      deviceHost = host;
+      devicePort = networkPort;
+      await persistRuntime();
+    },
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await pendingWrite.catch(() => {
+        // El cierre igualmente debe retirar los archivos publicados.
+      });
       if (await pathExists(path)) await unlink(path);
       if (await pathExists(portFilePath)) await unlink(portFilePath);
     },

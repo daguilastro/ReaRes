@@ -232,6 +232,16 @@ El puerto de red puede cambiar después de reiniciar el backend. Por ello, el cl
 6. Consulta `/device/connection`.
 7. Solo continúa al login si el servidor también reconoce el dispositivo.
 
+En Android, donde mDNS no es suficientemente consistente, el cliente solicita
+un QR al iniciar. Después del handshake comprueba `/device/connection` con su
+certificado antes de guardar atómicamente el nuevo endpoint y mostrar el login.
+Un mismo certificado puede volver a emparejarse con una invitación nueva.
+
+`admin-port.txt` utiliza un objeto JSON con `adminPort`, `deviceHost`,
+`devicePort` y `updatedAt`. Node revisa la IPv4 local cada tres segundos y
+actualiza el archivo si cambia la red; el puerto de dispositivos permanece
+estable mientras el proceso vive y se reemplaza al reiniciar el servidor.
+
 ## 5. Base de datos
 
 ### 5.1 Ubicación y apertura

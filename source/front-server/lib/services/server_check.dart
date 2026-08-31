@@ -81,7 +81,7 @@ Future<int> _readAdminPortFile(String path) async {
   final value = await File(
     path,
   ).readAsString().timeout(const Duration(seconds: 2));
-  return _parsePort(value);
+  return parseAdminRuntimePort(value);
 }
 
 Future<String> _adminPortSocketPath() async {
@@ -121,14 +121,25 @@ Future<int> _readAdminPort(String path) async {
         .transform(const LineSplitter())
         .first
         .timeout(const Duration(seconds: 2));
-    return _parsePort(line);
+    return parseAdminRuntimePort(line);
   } finally {
     await socket.close();
   }
 }
 
-int _parsePort(String value) {
-  final port = int.tryParse(value.trim());
+int parseAdminRuntimePort(String value) {
+  final trimmed = value.trim();
+  int? port = int.tryParse(trimmed);
+  if (port == null) {
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map<String, dynamic> && decoded['adminPort'] is int) {
+        port = decoded['adminPort'] as int;
+      }
+    } on FormatException {
+      // Compatibilidad con el formato histórico de una sola línea.
+    }
+  }
   if (port == null || port < 1 || port > 65535) {
     throw const ServerNotFoundException();
   }

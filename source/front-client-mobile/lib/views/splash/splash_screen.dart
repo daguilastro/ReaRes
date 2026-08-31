@@ -28,6 +28,7 @@ class SplashScreen extends StatefulWidget {
     this.skipPairing = false,
     this.reconnectCheck = reconnectToPairedServer,
     this.reconnectTimeout = const Duration(seconds: 8),
+    this.alwaysPairOnStartup,
   });
 
   final AppStrings strings;
@@ -35,6 +36,7 @@ class SplashScreen extends StatefulWidget {
   final bool skipPairing;
   final Future<bool> Function() reconnectCheck;
   final Duration reconnectTimeout;
+  final bool? alwaysPairOnStartup;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -67,9 +69,10 @@ class _SplashScreenState extends State<SplashScreen>
     try {
       await widget.initialChecks();
       if (!mounted) return;
+      final requiresPairing = widget.alwaysPairOnStartup ?? Platform.isAndroid;
       reconnected =
           widget.skipPairing ||
-          (!Platform.isAndroid &&
+          (!requiresPairing &&
               await widget.reconnectCheck().timeout(
                 widget.reconnectTimeout,
                 onTimeout: () {
