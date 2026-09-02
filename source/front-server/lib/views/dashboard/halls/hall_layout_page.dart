@@ -787,9 +787,7 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
     _ToolButton(
       icon: Icons.link,
       tooltip: _es ? 'Agrupar mesas' : 'Group tables',
-      onPressed: _layout.selectedTableIds.length >= 2
-          ? _layout.groupSelected
-          : null,
+      onPressed: _layout.selectedTableIds.length >= 2 ? _groupSelected : null,
     ),
     _ToolButton(
       icon: Icons.link_off,
@@ -812,6 +810,40 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
           : _confirmDelete,
     ),
   ];
+
+  Future<void> _groupSelected() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_es ? 'Nombre de la mesa' : 'Table name'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 50,
+          decoration: InputDecoration(
+            labelText: _es ? 'Nombre opcional' : 'Optional name',
+            helperText: _es
+                ? 'Vacío: se combinarán los nombres de las mesas.'
+                : 'Empty: the table names will be combined.',
+          ),
+          onSubmitted: (_) => Navigator.pop(dialogContext, controller.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_es ? 'Cancelar' : 'Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: Text(_es ? 'Agrupar' : 'Group'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name != null && mounted) _layout.groupSelected(identifier: name);
+  }
 
   Widget _cameraTools() => Material(
     color: Colors.white,

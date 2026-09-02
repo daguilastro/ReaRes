@@ -46,6 +46,7 @@ void main() {
     controller.groupSelected();
 
     expect(controller.groups.single.tableIds, containsAll([1, 2]));
+    expect(controller.groups.single.identifier, 'T-01 + T-02');
     controller.beginMove(1);
     controller.moveBy(const Offset(40, 60));
     expect(controller.endMove(), isTrue);
@@ -70,6 +71,22 @@ void main() {
 
     controller.toggleSelectedGroup();
     expect(controller.groups.single.tableIds, containsAll([1, 2, 3]));
+    expect(controller.groups.single.identifier, 'T-01 + T-02 + T-03');
+  });
+
+  test('a custom logical table name is preserved', () {
+    final controller = LiveRoomController()..load(_layout());
+    controller.toggleSelection(1);
+    controller.toggleSelection(2);
+    controller.toggleSelectedGroup(identifier: 'Familia Pérez');
+    expect(controller.groups.single.identifier, 'Familia Pérez');
+    expect(controller.snapshot().toLiveJson()['groups'], [
+      {
+        'id': -1,
+        'identifier': 'Familia Pérez',
+        'tableIds': [1, 2],
+      },
+    ]);
   });
 
   test('a collision restores the previous table position', () {

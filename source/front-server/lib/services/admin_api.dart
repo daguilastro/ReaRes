@@ -450,6 +450,19 @@ Future<void> reorderMenuCategories({
   );
 }
 
+Future<void> renameMenuCategory({
+  required String token,
+  required int categoryId,
+  required String name,
+}) async {
+  await _catalogRequest(
+    token: token,
+    method: 'PATCH',
+    path: '/api/admin/categories/$categoryId',
+    payload: {'name': name},
+  );
+}
+
 Future<Map<String, dynamic>> _catalogRequest({
   required String token,
   required String method,

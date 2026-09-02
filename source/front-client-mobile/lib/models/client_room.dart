@@ -131,15 +131,25 @@ class LiveRoomWall {
 }
 
 class LiveTableGroup {
-  const LiveTableGroup({required this.id, required this.tableIds});
+  const LiveTableGroup({
+    required this.id,
+    required this.tableIds,
+    this.identifier,
+  });
 
   factory LiveTableGroup.fromJson(Map<String, dynamic> json) => LiveTableGroup(
     id: json['id'] as int,
+    identifier: json['identifier'] as String?,
     tableIds: (json['tableIds'] as List).cast<int>(),
   );
 
   final int id;
+  final String? identifier;
   final List<int> tableIds;
 
-  Map<String, dynamic> toJson() => {'id': id, 'tableIds': tableIds};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'identifier': identifier,
+    'tableIds': tableIds,
+  };
 }

@@ -29,6 +29,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   int _nextLine = 1;
   final _orderDescription = TextEditingController();
   int? _categoryId;
+  bool _selectionExpanded = false;
   bool _saving = false;
   String? _submitError;
   bool get _es => widget.spanish;
@@ -151,44 +152,179 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   );
 
   Widget _selectedProducts() {
-    final selected = _lines.values.where((line) => line.quantity > 0).toList();
-    return SizedBox(
-      height: 82,
-      child: selected.isEmpty
-          ? Center(
-              child: Text(
-                _es
-                    ? 'Aún no hay productos seleccionados.'
-                    : 'No products selected yet.',
-                style: const TextStyle(color: Color(0xFF7A7D82)),
+    final selected = _lines.entries
+        .where((entry) => entry.value.quantity > 0)
+        .toList();
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            key: const ValueKey('toggle-selected-products'),
+            onTap: selected.isEmpty
+                ? null
+                : () =>
+                      setState(() => _selectionExpanded = !_selectionExpanded),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 14, 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.shopping_basket_outlined,
+                    size: 20,
+                    color: Color(0xFF71859B),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      selected.isEmpty
+                          ? (_es
+                                ? 'Aún no hay productos seleccionados.'
+                                : 'No products selected yet.')
+                          : '${_es ? 'Pedido actual' : 'Current order'} · '
+                                '${selected.fold<int>(0, (total, entry) => total + entry.value.quantity)}',
+                      style: const TextStyle(
+                        color: Color(0xFF565D64),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (selected.isNotEmpty)
+                    AnimatedRotation(
+                      turns: _selectionExpanded ? .5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: const Icon(Icons.keyboard_arrow_down_rounded),
+                    ),
+                ],
               ),
-            )
-          : ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              itemCount: selected.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (_, index) {
-                final entry = _lines.entries
-                    .where((entry) => entry.value.quantity > 0)
-                    .elementAt(index);
-                final line = entry.value;
-                return InputChip(
-                  key: ValueKey('selected-order-line-${entry.key}'),
-                  avatar: CircleAvatar(child: Text('${line.quantity}')),
-                  label: Text(line.product.name),
-                  onPressed: () =>
-                      _showProductDetails(line.product, draftKey: entry.key),
-                  onDeleted: _canRemove(entry.key)
-                      ? () => _removeOne(entry.key)
-                      : null,
-                  deleteIcon: const Icon(Icons.remove_circle_outline, size: 19),
-                  deleteButtonTooltipMessage: _es
-                      ? 'Quitar una unidad no entregada'
-                      : 'Remove one undelivered unit',
-                );
-              },
             ),
+          ),
+          if (!_selectionExpanded)
+            SizedBox(
+              height: 55,
+              child: selected.isEmpty
+                  ? const SizedBox.shrink()
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+                      itemCount: selected.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (_, index) {
+                        final entry = selected[index];
+                        return InputChip(
+                          key: ValueKey('selected-order-line-${entry.key}'),
+                          avatar: CircleAvatar(
+                            child: Text('${entry.value.quantity}'),
+                          ),
+                          label: Text(entry.value.product.name),
+                          onPressed: () =>
+                              setState(() => _selectionExpanded = true),
+                          onDeleted: _canRemove(entry.key)
+                              ? () => _removeOne(entry.key)
+                              : null,
+                          deleteIcon: const Icon(
+                            Icons.remove_circle_outline,
+                            size: 19,
+                          ),
+                        );
+                      },
+                    ),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
+                itemCount: selected.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (_, index) => _selectedProductRow(selected[index]),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _selectedProductRow(MapEntry<String, _DraftLine> entry) {
+    final line = entry.value;
+    final special = line.parentLineKey != null;
+    final categoryName = _categories
+        .where(
+          (category) =>
+              category.products.any((product) => product.id == line.product.id),
+        )
+        .firstOrNull
+        ?.name;
+    final removed = line.product.ingredients
+        .where((item) => line.removedIngredientIds.contains(item.id))
+        .map((item) => item.name)
+        .join(', ');
+    return Padding(
+      padding: EdgeInsets.only(left: special ? 24 : 0),
+      child: Material(
+        color: special ? const Color(0xFFF2F5F8) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE0E3E6)),
+        ),
+        child: ListTile(
+          key: ValueKey('expanded-order-line-${entry.key}'),
+          onTap: () => _showProductDetails(line.product, draftKey: entry.key),
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFFE9EFF5),
+            child: Text('${line.quantity}'),
+          ),
+          title: Text(
+            special ? '+ ${line.product.name}' : line.product.name,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (categoryName != null)
+                Text(
+                  categoryName,
+                  style: const TextStyle(
+                    color: Color(0xFF71859B),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              if (line.specifications.isNotEmpty) Text(line.specifications),
+              if (removed.isNotEmpty)
+                Text(
+                  '${_es ? 'Sin' : 'No'} $removed',
+                  style: const TextStyle(color: Color(0xFFAA5A56)),
+                ),
+            ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                formatPesos(line.product.value * line.quantity),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              IconButton(
+                tooltip: _es ? 'Editar producto' : 'Edit product',
+                onPressed: () =>
+                    _showProductDetails(line.product, draftKey: entry.key),
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              if (_canRemove(entry.key))
+                IconButton(
+                  tooltip: _es ? 'Quitar una unidad' : 'Remove one unit',
+                  onPressed: () => _removeOne(entry.key),
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

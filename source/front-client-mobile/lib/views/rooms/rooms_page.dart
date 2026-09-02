@@ -190,7 +190,7 @@ class _RoomsPageState extends State<RoomsPage> {
                     crossAxisCount: columns,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
-                    mainAxisExtent: 170,
+                    mainAxisExtent: 124,
                   ),
                   itemCount: _rooms.length,
                   itemBuilder: (context, index) => _RoomCard(
@@ -242,29 +242,51 @@ class _RoomCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
           children: [
-            const Icon(
-              Icons.meeting_room_outlined,
-              color: Color(0xFF71859B),
-              size: 27,
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE9EFF5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.meeting_room_outlined,
+                color: Color(0xFF71859B),
+                size: 23,
+              ),
             ),
-            const Spacer(),
-            Text(
-              room.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    room.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    spanish
+                        ? '${room.tableCount} mesas'
+                        : '${room.tableCount} tables',
+                    style: const TextStyle(
+                      color: Color(0xFF7A7D82),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 5),
-            Text(
-              spanish
-                  ? '${room.tableCount} mesas · Abrir vista en vivo'
-                  : '${room.tableCount} tables · Open live view',
-              style: const TextStyle(color: Color(0xFF7A7D82), fontSize: 12),
-            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF95A0AA)),
           ],
         ),
       ),

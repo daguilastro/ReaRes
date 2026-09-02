@@ -168,6 +168,12 @@ test('an admin builds menus with categories, products and room restrictions', as
   );
   assert.equal(reorderCategories.status, 200);
 
+  const renameCategory = await app.request(`/categories/${categoryId}`, {
+    method: 'PATCH', headers,
+    body: JSON.stringify({ name: 'Appetizers' }),
+  });
+  assert.equal(renameCategory.status, 200);
+
   const catalogResponse = await app.request('/catalog', { headers });
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json() as { menus: Array<{
@@ -190,6 +196,7 @@ test('an admin builds menus with categories, products and room restrictions', as
     ({ id }) => id === specialCategory.id,
   )!;
   assert.equal(regular.products.length, 2);
+  assert.equal((regular as unknown as { name: string }).name, 'Appetizers');
   assert.deepEqual(
     regular.products.map(({ id }) => id),
     [secondProduct.id, product.id],

@@ -680,10 +680,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         IconButton(
           key: const ValueKey('toggle-live-table-link'),
           onPressed: _canInteract && _layout.canToggleGroup
-              ? () {
-                  _layout.toggleSelectedGroup();
-                  _persist();
-                }
+              ? _toggleSelectedGroup
               : null,
           tooltip: _layout.canUngroup
               ? (widget.spanish ? 'Desenlazar selección' : 'Unlink selection')
@@ -705,6 +702,49 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       ],
     ),
   );
+
+  Future<void> _toggleSelectedGroup() async {
+    if (_layout.canUngroup) {
+      _layout.toggleSelectedGroup();
+      await _persist();
+      return;
+    }
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(widget.spanish ? 'Nombre de la mesa' : 'Table name'),
+        content: TextField(
+          key: const ValueKey('logical-table-name'),
+          controller: controller,
+          autofocus: true,
+          maxLength: 50,
+          decoration: InputDecoration(
+            labelText: widget.spanish ? 'Nombre opcional' : 'Optional name',
+            helperText: widget.spanish
+                ? 'Si lo dejas vacío se usarán los nombres de las mesas.'
+                : 'Leave empty to use the table names.',
+          ),
+          onSubmitted: (_) => Navigator.pop(dialogContext, controller.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(widget.spanish ? 'Cancelar' : 'Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('confirm-logical-table-name'),
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: Text(widget.spanish ? 'Enlazar' : 'Link'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || !mounted) return;
+    _layout.toggleSelectedGroup(identifier: name);
+    await _persist();
+  }
 
   Widget _modeButton({
     required Key key,

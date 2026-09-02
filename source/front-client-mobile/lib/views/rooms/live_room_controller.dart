@@ -46,7 +46,11 @@ class LiveRoomController extends ChangeNotifier {
     walls = [...layout.walls];
     groups = [
       for (final group in layout.groups)
-        LiveTableGroup(id: group.id, tableIds: [...group.tableIds]),
+        LiveTableGroup(
+          id: group.id,
+          identifier: group.identifier,
+          tableIds: [...group.tableIds],
+        ),
     ];
     selectedTableIds = {};
     interaction = LiveLayoutInteraction.normal;
@@ -63,7 +67,11 @@ class LiveRoomController extends ChangeNotifier {
     walls: [...walls],
     groups: [
       for (final group in groups)
-        LiveTableGroup(id: group.id, tableIds: [...group.tableIds]),
+        LiveTableGroup(
+          id: group.id,
+          identifier: group.identifier,
+          tableIds: [...group.tableIds],
+        ),
     ],
   );
 
@@ -189,7 +197,7 @@ class LiveRoomController extends ChangeNotifier {
       selectedTableIds.any((id) => groupForTable(id) != null);
   bool get canToggleGroup => canUngroup || selectedTableIds.length >= 2;
 
-  void groupSelected() {
+  void groupSelected({String? identifier}) {
     if (!canGroup) return;
     groups = groups
         .where(
@@ -201,6 +209,7 @@ class LiveRoomController extends ChangeNotifier {
       ...groups,
       LiveTableGroup(
         id: _nextTemporaryId--,
+        identifier: _groupIdentifier(identifier),
         tableIds: selectedTableIds.toList(),
       ),
     ];
@@ -220,7 +229,7 @@ class LiveRoomController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleSelectedGroup() {
+  void toggleSelectedGroup({String? identifier}) {
     if (!canToggleGroup) return;
     if (canUngroup) {
       final selected = {...selectedTableIds};
@@ -235,12 +244,22 @@ class LiveRoomController extends ChangeNotifier {
         ...groups,
         LiveTableGroup(
           id: _nextTemporaryId--,
+          identifier: _groupIdentifier(identifier),
           tableIds: selectedTableIds.toList(),
         ),
       ];
     }
     dirty = true;
     notifyListeners();
+  }
+
+  String _groupIdentifier(String? requested) {
+    final custom = requested?.trim() ?? '';
+    if (custom.isNotEmpty) return custom;
+    return tables
+        .where((table) => selectedTableIds.contains(table.id))
+        .map((table) => table.identifier)
+        .join(' + ');
   }
 
   void _replaceTables(List<LiveRoomTable> replacements) {

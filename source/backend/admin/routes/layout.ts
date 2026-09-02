@@ -323,10 +323,8 @@ function persistLayout(database: DatabaseSync, roomId: number, layout: LayoutPay
   for (const group of layout.groups) {
     const tableIds = group.tableIds.map((id) => idMap.get(id)!);
     const members = group.tableIds.map((id) => layout.tables.find((table) => table.id === id)!);
-    const numeric = members.filter(({ identifier }) => /^\d+$/.test(identifier));
-    const identifier = numeric.length > 0
-      ? numeric.reduce((a, b) => Number(a.identifier) <= Number(b.identifier) ? a : b).identifier
-      : group.identifier || members[0].identifier;
+    const identifier = group.identifier?.trim() ||
+      members.map(({ identifier: memberName }) => memberName).join(' + ');
     logicalGroups.push({
       id: group.id,
       identifier,

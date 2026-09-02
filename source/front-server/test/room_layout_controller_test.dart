@@ -45,7 +45,7 @@ void main() {
     controller.groupSelected();
 
     expect(controller.groups, hasLength(1));
-    expect(controller.groups.single.identifier, '1');
+    expect(controller.groups.single.identifier, '1 + 2');
     expect(controller.groups.single.tableIds, containsAll([1, 2]));
     expect(controller.tables, hasLength(3));
 

@@ -31,7 +31,7 @@ export function persistLogicalGroups(
     let identifier = group.identifier?.trim() || '';
     if (group.id !== undefined && group.id > 0 && existingIds.has(group.id)) {
       groupId = group.id;
-      if (!identifier) identifier = logicalIdentifier(groupId);
+      if (!identifier) identifier = automaticIdentifier(database, group.tableIds);
       database.prepare(
         'UPDATE table_groups SET visible_identifier = ? WHERE id = ? AND hall_id = ?',
       ).run(identifier, groupId, roomId);
@@ -43,7 +43,7 @@ export function persistLogicalGroups(
          VALUES (?, 'pending', 'available', ?)`,
       ).run(roomId, new Date().toISOString());
       groupId = Number(result.lastInsertRowid);
-      identifier = logicalIdentifier(groupId);
+      if (!identifier) identifier = automaticIdentifier(database, group.tableIds);
       database.prepare(
         'UPDATE table_groups SET visible_identifier = ? WHERE id = ?',
       ).run(identifier, groupId);
@@ -173,6 +173,11 @@ function updateMemberStatuses(
   ).run(status, groupId);
 }
 
-function logicalIdentifier(id: number) {
-  return `G-${id}`;
+function automaticIdentifier(database: DatabaseSync, tableIds: number[]) {
+  const identifier = database.prepare(
+    `SELECT group_concat(identifier, ' + ') AS identifier
+     FROM (SELECT identifier FROM hall_tables
+           WHERE id IN (${tableIds.map(() => '?').join(',')}) ORDER BY id)`,
+  ).get(...tableIds) as { identifier: string | null };
+  return identifier.identifier ?? tableIds.join(' + ');
 }

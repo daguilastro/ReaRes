@@ -269,7 +269,7 @@ void main() {
 
     expect(find.text('Carlos Ruiz'), findsOneWidget);
     expect(find.text('Terraza'), findsOneWidget);
-    expect(find.text('8 mesas · Abrir vista en vivo'), findsOneWidget);
+    expect(find.text('8 mesas'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('assigned-room-3')));
     await tester.pumpAndSettle();
@@ -589,6 +589,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('increase-product-20')));
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('toggle-selected-products')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('expanded-order-line-custom:1')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('submit-order')));
     await tester.pumpAndSettle();
 

@@ -307,7 +307,7 @@ class RoomLayoutController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void groupSelected() {
+  void groupSelected({String? identifier}) {
     if (selectedTableIds.length < 2) return;
     selectedWallId = null;
     final selected = tables
@@ -319,21 +319,14 @@ class RoomLayoutController extends ChangeNotifier {
               group.tableIds.every((id) => !selectedTableIds.contains(id)),
         )
         .toList();
-    final numeric =
-        selected
-            .where((table) => int.tryParse(table.identifier) != null)
-            .toList()
-          ..sort(
-            (a, b) =>
-                int.parse(a.identifier).compareTo(int.parse(b.identifier)),
-          );
+    final requested = identifier?.trim() ?? '';
     groups = [
       ...groups,
       RoomTableGroupModel(
         id: _nextTemporaryId--,
-        identifier: numeric.isNotEmpty
-            ? numeric.first.identifier
-            : selected.first.identifier,
+        identifier: requested.isNotEmpty
+            ? requested
+            : selected.map((table) => table.identifier).join(' + '),
         tableIds: selectedTableIds.toList(),
       ),
     ];

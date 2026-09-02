@@ -199,6 +199,30 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     }
   });
 
+  routes.patch('/categories/:categoryId', async (c) => {
+    const categoryId = positiveId(c.req.param('categoryId'));
+    const current = categoryId ? db().prepare(
+      'SELECT menu_id AS menuId FROM menu_categories WHERE id = ?',
+    ).get(categoryId) as { menuId: number } | undefined : undefined;
+    if (!categoryId || !current) {
+      return c.json({ error: 'CATEGORY_NOT_FOUND' }, 404);
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) return body;
+    const name = text(body.name, 2, 60);
+    if (!name) return c.json({ error: 'INVALID_CATEGORY' }, 422);
+    try {
+      db().prepare('UPDATE menu_categories SET name = ? WHERE id = ?')
+        .run(name, categoryId);
+      return c.json({ category: { id: categoryId, menuId: current.menuId, name } });
+    } catch (error) {
+      if (String(error).includes('UNIQUE constraint failed')) {
+        return c.json({ error: 'CATEGORY_NAME_TAKEN' }, 409);
+      }
+      throw error;
+    }
+  });
+
   routes.post('/menus/:menuId/products', async (c) => {
     const menuId = positiveId(c.req.param('menuId'));
     if (!menuId || !exists(db(), 'menu', menuId)) return c.json({ error: 'MENU_NOT_FOUND' }, 404);

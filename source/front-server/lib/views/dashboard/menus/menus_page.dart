@@ -64,6 +64,12 @@ typedef ReorderCategories =
       required int? parentCategoryId,
       required List<int> categoryIds,
     });
+typedef RenameCategory =
+    Future<void> Function({
+      required String token,
+      required int categoryId,
+      required String name,
+    });
 
 class MenusPage extends StatefulWidget {
   const MenusPage({
@@ -80,6 +86,7 @@ class MenusPage extends StatefulWidget {
     this.deactivateProduct = deactivateMenuProduct,
     this.reorderProducts = reorderMenuProducts,
     this.reorderCategories = reorderMenuCategories,
+    this.renameCategory = renameMenuCategory,
   });
   final bool spanish;
   final String token;
@@ -93,6 +100,7 @@ class MenusPage extends StatefulWidget {
   final DeactivateProduct deactivateProduct;
   final ReorderProducts reorderProducts;
   final ReorderCategories reorderCategories;
+  final RenameCategory renameCategory;
   @override
   State<MenusPage> createState() => _MenusPageState();
 }
@@ -296,6 +304,12 @@ class _MenusPageState extends State<MenusPage> {
                     ? (_es ? 'Subcategoría' : 'Subcategory')
                     : menu.name),
           actions: [
+            OutlinedButton.icon(
+              key: const ValueKey('rename-category'),
+              onPressed: () => _renameCategory(category),
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(_es ? 'Cambiar nombre' : 'Rename'),
+            ),
             if (!subcategory)
               OutlinedButton.icon(
                 key: const ValueKey('add-subcategory'),
@@ -670,6 +684,51 @@ class _MenusPageState extends State<MenusPage> {
         name: draft.name,
         parentCategoryId: parent?.id,
         isSpecial: draft.isSpecial,
+      ),
+    );
+  }
+
+  Future<void> _renameCategory(MenuCategory category) async {
+    final controller = TextEditingController(text: category.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_es ? 'Cambiar nombre de categoría' : 'Rename category'),
+        content: TextField(
+          key: const ValueKey('category-name-edit'),
+          controller: controller,
+          autofocus: true,
+          maxLength: 60,
+          decoration: InputDecoration(labelText: _es ? 'Nombre' : 'Name'),
+          onSubmitted: (value) {
+            if (value.trim().length >= 2) {
+              Navigator.pop(dialogContext, value.trim());
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_es ? 'Cancelar' : 'Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('save-category-name'),
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.length >= 2) Navigator.pop(dialogContext, value);
+            },
+            child: Text(_es ? 'Guardar' : 'Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name == category.name) return;
+    await _write(
+      () => widget.renameCategory(
+        token: widget.token,
+        categoryId: category.id,
+        name: name,
       ),
     );
   }

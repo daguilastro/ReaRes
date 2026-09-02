@@ -60,7 +60,7 @@ test('saves and loads a complete room layout atomically for an admin', async () 
   };
   assert.equal(payload.tables.length, 2);
   assert.equal(payload.walls.length, 2);
-  assert.match(payload.groups[0].identifier, /^G-\d+$/);
+  assert.equal(payload.groups[0].identifier, 'T-01 + 2');
   assert.equal(payload.tables[1].rotation, .25);
   assert.ok(payload.tables.every(({ id }) => id > 0));
 
