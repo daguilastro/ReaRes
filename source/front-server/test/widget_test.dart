@@ -608,7 +608,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Revenue: 6-month trend'), findsOneWidget);
-    expect(find.textContaining('Aug'), findsWidgets);
+    final currentMonth = const [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ][DateTime.now().month - 1];
+    expect(find.textContaining(currentMonth), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('revenue-range-selector')));
     await tester.pumpAndSettle();

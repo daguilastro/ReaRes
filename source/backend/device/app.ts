@@ -1047,24 +1047,27 @@ function replaceOrderItems(database: DatabaseSync, orderId: number, items: Order
     `SELECT oi.id, oi.product_id AS productId, oi.quantity,
             oi.delivered_quantity AS deliveredQuantity, oi.specifications,
             parent.product_id AS parentProductId, p.name,
+            category.name AS categoryName,
             p.description AS productDescription, p.value,
             parent_product.name AS parentProductName
      FROM order_items oi
      JOIN products p ON p.id = oi.product_id
+     JOIN menu_categories category ON category.id = p.category_id
      LEFT JOIN order_items parent ON parent.id = oi.parent_order_item_id
      LEFT JOIN products parent_product ON parent_product.id = parent.product_id
      WHERE oi.order_id = ? ORDER BY oi.id`,
   ).all(orderId) as Array<{
     id: number; productId: number; quantity: number; deliveredQuantity: number;
     specifications: string | null; parentProductId: number | null;
-    name: string; productDescription: string | null; value: number;
+    name: string; categoryName: string; productDescription: string | null;
+    value: number;
     parentProductName: string | null;
   }>;
   const insertRemovedItem = database.prepare(
     `INSERT INTO removed_order_items
-     (order_id, product_name, product_description, unit_value, quantity,
+     (order_id, product_name, category_name, product_description, unit_value, quantity,
       specifications, parent_product_name, removed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const item of storedItems) {
     const removedIngredientIds = (database.prepare(
@@ -1089,6 +1092,7 @@ function replaceOrderItems(database: DatabaseSync, orderId: number, items: Order
       insertRemovedItem.run(
         orderId,
         item.name,
+        item.categoryName,
         item.productDescription,
         item.value,
         removedQuantity,
@@ -1220,15 +1224,18 @@ function readOrder(database: DatabaseSync, orderId: number) {
   ).get(orderId);
   const items = database.prepare(
     `SELECT oi.id, oi.product_id AS productId, p.name,
+            category.name AS categoryName,
             p.description AS productDescription, p.value AS unitValue, oi.quantity,
             oi.delivered_quantity AS deliveredQuantity,
             oi.specifications, oi.parent_order_item_id AS parentOrderItemId,
             oi.status
      FROM order_items oi JOIN products p ON p.id = oi.product_id
+     JOIN menu_categories category ON category.id = p.category_id
      WHERE oi.order_id = ? ORDER BY oi.id`,
   ).all(orderId) as Array<Record<string, unknown> & { id: number; productId: number }>;
   const removedItems = database.prepare(
-    `SELECT id, product_name AS name, product_description AS productDescription,
+    `SELECT id, product_name AS name, category_name AS categoryName,
+            product_description AS productDescription,
             unit_value AS unitValue, quantity, specifications,
             parent_product_name AS parentProductName, removed_at AS removedAt
      FROM removed_order_items WHERE order_id = ? ORDER BY id`,
@@ -1279,12 +1286,16 @@ function readRoomMenus(database: DatabaseSync, roomId: number) {
       products: (database.prepare(
         `SELECT p.id, p.name, p.description, p.value
          FROM products p
+         LEFT JOIN category_product_positions ordering
+           ON ordering.category_id = p.category_id
+          AND ordering.product_id = p.id
          WHERE p.category_id = ? AND p.is_active = 1
            AND (? = 1 OR EXISTS (
              SELECT 1 FROM product_halls allowed
              WHERE allowed.product_id = p.id AND allowed.hall_id = ?
            ))
-         ORDER BY p.name COLLATE NOCASE`,
+         ORDER BY ordering.position IS NULL, ordering.position,
+                  p.name COLLATE NOCASE, p.id`,
       ).all(category.id, menu.isPrimary, roomId) as Array<{
         id: number; name: string; description: string | null; value: number;
       }>).map((product) => ({

@@ -180,6 +180,15 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                         fontSize: 15,
                       ),
                     ),
+                    if (item.categoryName.isNotEmpty)
+                      Text(
+                        item.categoryName,
+                        style: const TextStyle(
+                          color: Color(0xFF71859B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     if ((item.specifications ?? '').trim().isNotEmpty)
                       Text(
                         item.specifications!.trim(),
@@ -231,6 +240,15 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (item.categoryName.isNotEmpty)
+                  Text(
+                    item.categoryName,
+                    style: const TextStyle(
+                      color: Color(0xFFA38380),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 if ((item.specifications ?? '').trim().isNotEmpty)
                   Text(
                     item.specifications!.trim(),

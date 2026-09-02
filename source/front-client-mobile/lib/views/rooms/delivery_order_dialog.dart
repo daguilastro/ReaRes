@@ -337,6 +337,18 @@ class _DeliveryOrderDialogState extends State<DeliveryOrderDialog> {
                           ),
                       ],
                     ),
+                    if (item.categoryName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(
+                          item.categoryName,
+                          style: const TextStyle(
+                            color: Color(0xFF71859B),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     if ((item.productDescription ?? '').trim().isNotEmpty)
                       _detail(
                         _es ? 'Producto' : 'Product',

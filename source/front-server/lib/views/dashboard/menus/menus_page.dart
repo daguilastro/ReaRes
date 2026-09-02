@@ -51,6 +51,12 @@ typedef UpdateProduct =
     });
 typedef DeactivateProduct =
     Future<void> Function({required String token, required int productId});
+typedef ReorderProducts =
+    Future<void> Function({
+      required String token,
+      required int categoryId,
+      required List<int> productIds,
+    });
 
 class MenusPage extends StatefulWidget {
   const MenusPage({
@@ -65,6 +71,7 @@ class MenusPage extends StatefulWidget {
     this.addProduct = createMenuProduct,
     this.updateProduct = updateMenuProduct,
     this.deactivateProduct = deactivateMenuProduct,
+    this.reorderProducts = reorderMenuProducts,
   });
   final bool spanish;
   final String token;
@@ -76,6 +83,7 @@ class MenusPage extends StatefulWidget {
   final AddProduct addProduct;
   final UpdateProduct updateProduct;
   final DeactivateProduct deactivateProduct;
+  final ReorderProducts reorderProducts;
   @override
   State<MenusPage> createState() => _MenusPageState();
 }
@@ -256,6 +264,7 @@ class _MenusPageState extends State<MenusPage> {
 
   Widget _categoryDetail(MenuCategory category, {bool subcategory = false}) {
     final menu = _menu!;
+    final products = category.products;
     return ListView(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
       children: [
@@ -276,7 +285,7 @@ class _MenusPageState extends State<MenusPage> {
                     ? (_es ? 'Subcategoría' : 'Subcategory')
                     : menu.name),
           actions: [
-            if (!subcategory && !category.isSpecial)
+            if (!subcategory)
               OutlinedButton.icon(
                 key: const ValueKey('add-subcategory'),
                 onPressed: () => _createCategory(menu, parent: category),
@@ -328,9 +337,10 @@ class _MenusPageState extends State<MenusPage> {
             ),
             child: Column(
               children: [
-                for (final product in category.products)
+                for (var index = 0; index < products.length; index++)
                   ListTile(
-                    onTap: () => _editProduct(menu, product),
+                    key: ValueKey('menu-product-${products[index].id}'),
+                    onTap: () => _editProduct(menu, products[index]),
                     leading: const CircleAvatar(
                       backgroundColor: Color(0xFFE9EEF3),
                       child: Icon(
@@ -338,13 +348,33 @@ class _MenusPageState extends State<MenusPage> {
                         color: Color(0xFF71859B),
                       ),
                     ),
-                    title: Text(product.name),
-                    subtitle: Text(product.description ?? ''),
+                    title: Text(products[index].name),
+                    subtitle: Text(products[index].description ?? ''),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(formatPesos(product.value)),
+                        Text(formatPesos(products[index].value)),
                         const SizedBox(width: 8),
+                        IconButton(
+                          key: ValueKey(
+                            'move-product-up-${products[index].id}',
+                          ),
+                          tooltip: _es ? 'Mover arriba' : 'Move up',
+                          onPressed: index == 0
+                              ? null
+                              : () => _moveProduct(category, index, -1),
+                          icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                        ),
+                        IconButton(
+                          key: ValueKey(
+                            'move-product-down-${products[index].id}',
+                          ),
+                          tooltip: _es ? 'Mover abajo' : 'Move down',
+                          onPressed: index == products.length - 1
+                              ? null
+                              : () => _moveProduct(category, index, 1),
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                        ),
                         const Icon(Icons.edit_outlined, size: 18),
                       ],
                     ),
@@ -353,6 +383,23 @@ class _MenusPageState extends State<MenusPage> {
             ),
           ),
       ],
+    );
+  }
+
+  Future<void> _moveProduct(
+    MenuCategory category,
+    int currentIndex,
+    int delta,
+  ) async {
+    final reordered = [...category.products];
+    final product = reordered.removeAt(currentIndex);
+    reordered.insert(currentIndex + delta, product);
+    await _write(
+      () => widget.reorderProducts(
+        token: widget.token,
+        categoryId: category.id,
+        productIds: reordered.map((item) => item.id).toList(),
+      ),
     );
   }
 
@@ -441,23 +488,10 @@ class _MenusPageState extends State<MenusPage> {
     RestaurantMenu menu, {
     MenuCategory? parent,
   }) async {
-    if (parent != null && parent.isSpecial) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFFB64A4A),
-          content: Text(
-            _es
-                ? 'Una categoría especial no puede tener subcategorías.'
-                : 'A special category cannot have subcategories.',
-          ),
-        ),
-      );
-      return;
-    }
     final draft = await showDialog<_CategoryDraft>(
       context: context,
       builder: (_) =>
-          _CategoryDialog(spanish: _es, subcategory: parent != null),
+          _CategoryDialog(spanish: _es, inheritedSpecial: parent?.isSpecial),
     );
     if (draft == null) return;
     await _write(
@@ -774,9 +808,9 @@ class _CategoryDraft {
 }
 
 class _CategoryDialog extends StatefulWidget {
-  const _CategoryDialog({required this.spanish, required this.subcategory});
+  const _CategoryDialog({required this.spanish, this.inheritedSpecial});
   final bool spanish;
-  final bool subcategory;
+  final bool? inheritedSpecial;
   @override
   State<_CategoryDialog> createState() => _CategoryDialogState();
 }
@@ -784,6 +818,7 @@ class _CategoryDialog extends StatefulWidget {
 class _CategoryDialogState extends State<_CategoryDialog> {
   final _name = TextEditingController();
   bool _special = false;
+  bool get _subcategory => widget.inheritedSpecial != null;
   @override
   void dispose() {
     _name.dispose();
@@ -793,7 +828,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(
-      widget.subcategory
+      _subcategory
           ? (widget.spanish ? 'Nueva subcategoría' : 'New subcategory')
           : (widget.spanish ? 'Nueva categoría' : 'New category'),
     ),
@@ -807,7 +842,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
             labelText: widget.spanish ? 'Nombre' : 'Name',
           ),
         ),
-        if (!widget.subcategory)
+        if (!_subcategory)
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _special,
@@ -815,6 +850,19 @@ class _CategoryDialogState extends State<_CategoryDialog> {
               widget.spanish ? 'Categoría especial' : 'Special category',
             ),
             onChanged: (value) => setState(() => _special = value),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              widget.inheritedSpecial == true
+                  ? (widget.spanish
+                        ? 'Esta subcategoría también será especial.'
+                        : 'This subcategory will also be special.')
+                  : (widget.spanish
+                        ? 'Esta subcategoría será normal.'
+                        : 'This subcategory will be regular.'),
+            ),
           ),
       ],
     ),
@@ -826,7 +874,13 @@ class _CategoryDialogState extends State<_CategoryDialog> {
       FilledButton(
         onPressed: () {
           if (_name.text.trim().length >= 2) {
-            Navigator.pop(context, _CategoryDraft(_name.text.trim(), _special));
+            Navigator.pop(
+              context,
+              _CategoryDraft(
+                _name.text.trim(),
+                widget.inheritedSpecial ?? _special,
+              ),
+            );
           }
         },
         child: Text(widget.spanish ? 'Crear' : 'Create'),

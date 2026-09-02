@@ -819,17 +819,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         roomId: widget.room.id,
       );
       if (!mounted) return;
-      await showGeneralDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        barrierLabel: 'Order editor',
-        barrierColor: Colors.black45,
-        transitionDuration: const Duration(milliseconds: 180),
-        transitionBuilder: (_, animation, _, child) =>
-            FadeTransition(opacity: animation, child: child),
-        pageBuilder: (_, _, _) => Padding(
-          padding: const EdgeInsets.all(18),
-          child: OrderEditorDialog(
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => OrderEditorDialog(
             spanish: widget.spanish,
             tableLabel: tableLabel,
             menus: menus,

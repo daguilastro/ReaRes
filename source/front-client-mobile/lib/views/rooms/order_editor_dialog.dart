@@ -72,36 +72,39 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 980, maxHeight: 760),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xFFFAF9F6),
-              borderRadius: BorderRadius.circular(22),
-              boxShadow: const [
-                BoxShadow(color: Color(0x44000000), blurRadius: 30),
-              ],
-            ),
-            child: Column(
-              children: [
-                _header(),
-                const Divider(height: 1),
-                _selectedProducts(),
-                const Divider(height: 1),
-                Expanded(child: _catalog()),
-                const Divider(height: 1),
-                _footer(),
-              ],
-            ),
-          ),
+  Widget build(BuildContext context) => PopScope<void>(
+    canPop: _categoryId == null && !_saving,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop && !_saving) _goBack();
+    },
+    child: Scaffold(
+      backgroundColor: const Color(0xFFFAF9F6),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _header(),
+            const Divider(height: 1),
+            _selectedProducts(),
+            const Divider(height: 1),
+            Expanded(child: _catalog()),
+            const Divider(height: 1),
+            _footer(),
+          ],
         ),
       ),
     ),
   );
+
+  void _goBack() {
+    final current = _categories
+        .where((category) => category.id == _categoryId)
+        .firstOrNull;
+    if (current != null) {
+      setState(() => _categoryId = current.parentCategoryId);
+      return;
+    }
+    Navigator.maybePop(context);
+  }
 
   Widget _header() => Padding(
     padding: const EdgeInsets.fromLTRB(22, 16, 12, 14),
@@ -139,8 +142,9 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         ),
         IconButton(
           key: const ValueKey('close-order-editor'),
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          icon: const Icon(Icons.close),
+          tooltip: _es ? 'Atrás' : 'Back',
+          onPressed: _saving ? null : _goBack,
+          icon: const Icon(Icons.arrow_back_rounded),
         ),
       ],
     ),
@@ -213,6 +217,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     final children = _categories
         .where((item) => item.parentCategoryId == current.id)
         .toList();
+    final products = current.products;
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -246,7 +251,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
           ],
           const SizedBox(height: 16),
         ],
-        for (final product in current.products) _productRow(product),
+        for (final product in products) _productRow(product),
       ],
     );
   }
@@ -384,6 +389,25 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                     0
               : 0,
     };
+    final specialRoots = specialCategories
+        .where((category) => category.parentCategoryId == null)
+        .toList();
+    int categoryQuantity(ClientMenuCategory category) =>
+        [
+          category,
+          ...specialCategories.where(
+            (candidate) => candidate.parentCategoryId == category.id,
+          ),
+        ].fold(
+          0,
+          (total, candidate) =>
+              total +
+              candidate.products.fold(
+                0,
+                (subtotal, product) =>
+                    subtotal + (specialQuantities[product.id] ?? 0),
+              ),
+        );
     int? selectedSpecialCategoryId;
     await showGeneralDialog<void>(
       context: context,
@@ -530,16 +554,19 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final category in specialCategories)
+                        for (final category in specialRoots)
                           _SpecialCategoryButton(
                             key: ValueKey('special-category-${category.id}'),
                             category: category,
-                            selected: selectedSpecialCategoryId == category.id,
-                            quantity: category.products.fold(
-                              0,
-                              (total, item) =>
-                                  total + (specialQuantities[item.id] ?? 0),
-                            ),
+                            selected:
+                                selectedSpecialCategoryId == category.id ||
+                                specialCategories.any(
+                                  (candidate) =>
+                                      candidate.id ==
+                                          selectedSpecialCategoryId &&
+                                      candidate.parentCategoryId == category.id,
+                                ),
+                            quantity: categoryQuantity(category),
                             onTap: () => modalSetState(() {
                               selectedSpecialCategoryId =
                                   selectedSpecialCategoryId == category.id
@@ -569,7 +596,13 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                               category: specialCategories.firstWhere(
                                 (item) => item.id == selectedSpecialCategoryId,
                               ),
+                              categories: specialCategories,
+                              spanish: _es,
                               quantities: specialQuantities,
+                              onCategorySelected: (categoryId) =>
+                                  modalSetState(() {
+                                    selectedSpecialCategoryId = categoryId;
+                                  }),
                               onChanged: (special, delta) => modalSetState(() {
                                 specialQuantities[special.id] =
                                     ((specialQuantities[special.id] ?? 0) +
@@ -976,56 +1009,84 @@ class _SpecialProductsPanel extends StatelessWidget {
   const _SpecialProductsPanel({
     super.key,
     required this.category,
+    required this.categories,
+    required this.spanish,
     required this.quantities,
     required this.onChanged,
+    required this.onCategorySelected,
   });
 
   final ClientMenuCategory category;
+  final List<ClientMenuCategory> categories;
+  final bool spanish;
   final Map<int, int> quantities;
   final void Function(ClientMenuProduct product, int delta) onChanged;
+  final ValueChanged<int> onCategorySelected;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(10),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFDCE2E7)),
-      boxShadow: const [
-        BoxShadow(
-          color: Color(0x0F000000),
-          blurRadius: 12,
-          offset: Offset(0, 4),
-        ),
-      ],
-    ),
-    child: category.products.isEmpty
-        ? const Padding(
-            padding: EdgeInsets.all(8),
-            child: Text(
-              'No hay productos en esta categoría.',
-              style: TextStyle(color: Color(0xFF7A7D82)),
-            ),
-          )
-        : Column(
-            children: [
-              for (
-                var index = 0;
-                index < category.products.length;
-                index++
-              ) ...[
-                if (index > 0) const Divider(height: 1),
-                _SpecialProductRow(
-                  product: category.products[index],
-                  quantity: quantities[category.products[index].id] ?? 0,
-                  onChanged: (delta) =>
-                      onChanged(category.products[index], delta),
-                ),
-              ],
-            ],
+  Widget build(BuildContext context) {
+    final children = categories
+        .where((candidate) => candidate.parentCategoryId == category.id)
+        .toList();
+    final products = category.products;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDCE2E7)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
-  );
+        ],
+      ),
+      child: products.isEmpty && children.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text(
+                'No hay productos en esta categoría.',
+                style: TextStyle(color: Color(0xFF7A7D82)),
+              ),
+            )
+          : Column(
+              children: [
+                if (category.parentCategoryId != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: ValueKey('special-parent-${category.id}'),
+                      onPressed: () =>
+                          onCategorySelected(category.parentCategoryId!),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      label: Text(spanish ? 'Volver' : 'Back'),
+                    ),
+                  ),
+                for (final child in children)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: OutlinedButton.icon(
+                      key: ValueKey('special-subcategory-${child.id}'),
+                      onPressed: () => onCategorySelected(child.id),
+                      icon: const Icon(Icons.account_tree_outlined),
+                      label: Text(child.name),
+                    ),
+                  ),
+                for (var index = 0; index < products.length; index++) ...[
+                  if (index > 0) const Divider(height: 1),
+                  _SpecialProductRow(
+                    product: products[index],
+                    quantity: quantities[products[index].id] ?? 0,
+                    onChanged: (delta) => onChanged(products[index], delta),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
 }
 
 class _SpecialProductRow extends StatelessWidget {

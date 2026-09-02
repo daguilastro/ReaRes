@@ -136,7 +136,6 @@ CREATE TABLE IF NOT EXISTS "menu_categories" (
 	"name" TEXT NOT NULL,
 	"parent_category_id" INTEGER,
 	"is_special" INTEGER NOT NULL DEFAULT 0 CHECK ("is_special" IN (0, 1)),
-	CHECK ("is_special" = 0 OR "parent_category_id" IS NULL),
 	UNIQUE ("menu_id", "name"),
 	FOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("parent_category_id") REFERENCES "menu_categories"("id") ON DELETE CASCADE
@@ -152,6 +151,16 @@ CREATE TABLE IF NOT EXISTS "products" (
 	"is_active" INTEGER NOT NULL DEFAULT 1 CHECK ("is_active" IN (0, 1)),
 	FOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("category_id") REFERENCES "menu_categories"("id") ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS "category_product_positions" (
+	"category_id" INTEGER NOT NULL,
+	"product_id" INTEGER NOT NULL,
+	"position" INTEGER NOT NULL CHECK ("position" >= 0),
+	PRIMARY KEY ("category_id", "product_id"),
+	UNIQUE ("category_id", "position"),
+	FOREIGN KEY ("category_id") REFERENCES "menu_categories"("id") ON DELETE CASCADE,
+	FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS "product_halls" (
@@ -220,6 +229,7 @@ CREATE TABLE IF NOT EXISTS "removed_order_items" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"order_id" INTEGER NOT NULL,
 	"product_name" TEXT NOT NULL,
+	"category_name" TEXT,
 	"product_description" TEXT,
 	"unit_value" INTEGER NOT NULL,
 	"quantity" INTEGER NOT NULL CHECK ("quantity" > 0),
@@ -289,28 +299,34 @@ CREATE INDEX IF NOT EXISTS "order_items_parent_order_item_id_idx"
 
 CREATE TRIGGER IF NOT EXISTS "menu_categories_special_root_insert"
 BEFORE INSERT ON "menu_categories"
-WHEN NEW."parent_category_id" IS NOT NULL AND (
-	NEW."is_special" = 1 OR EXISTS (
-		SELECT 1 FROM "menu_categories" AS parent
-		WHERE parent."id" = NEW."parent_category_id"
-		  AND parent."is_special" = 1
-	)
+WHEN NEW."parent_category_id" IS NOT NULL AND NOT EXISTS (
+	SELECT 1 FROM "menu_categories" AS parent
+	WHERE parent."id" = NEW."parent_category_id"
+	  AND parent."menu_id" = NEW."menu_id"
+	  AND parent."parent_category_id" IS NULL
+	  AND parent."is_special" = NEW."is_special"
 )
 BEGIN
-	SELECT RAISE(ABORT, 'SPECIAL_CATEGORY_MUST_BE_ROOT');
+	SELECT RAISE(ABORT, 'INVALID_PARENT_CATEGORY');
 END;
 
 CREATE TRIGGER IF NOT EXISTS "menu_categories_special_root_update"
 BEFORE UPDATE OF "parent_category_id", "is_special" ON "menu_categories"
-WHEN NEW."parent_category_id" IS NOT NULL AND (
-	NEW."is_special" = 1 OR EXISTS (
-		SELECT 1 FROM "menu_categories" AS parent
-		WHERE parent."id" = NEW."parent_category_id"
-		  AND parent."is_special" = 1
-	)
+WHEN (NEW."parent_category_id" IS NOT NULL AND NOT EXISTS (
+	SELECT 1 FROM "menu_categories" AS parent
+	WHERE parent."id" = NEW."parent_category_id"
+	  AND parent."menu_id" = NEW."menu_id"
+	  AND parent."parent_category_id" IS NULL
+	  AND parent."is_special" = NEW."is_special"
+)) OR EXISTS (
+	SELECT 1 FROM "menu_categories" AS child
+	WHERE child."parent_category_id" = OLD."id"
+	  AND (NEW."parent_category_id" IS NOT NULL
+	       OR child."menu_id" != NEW."menu_id"
+	       OR child."is_special" != NEW."is_special")
 )
 BEGIN
-	SELECT RAISE(ABORT, 'SPECIAL_CATEGORY_MUST_BE_ROOT');
+	SELECT RAISE(ABORT, 'INVALID_PARENT_CATEGORY');
 END;
 
 CREATE TRIGGER IF NOT EXISTS "order_items_special_parent_insert"

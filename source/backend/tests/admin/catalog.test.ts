@@ -75,22 +75,26 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.equal(specialCategory.parentCategoryId, null);
   assert.equal(specialCategory.isSpecial, true);
 
-  const specialSubcategory = await app.request(`/menus/${menuId}/categories`, {
+  const requestedSpecialChild = await app.request(`/menus/${menuId}/categories`, {
     method: 'POST', headers,
-    body: JSON.stringify({ name: 'Invalid special child',
+    body: JSON.stringify({ name: 'Regular child',
       parentCategoryId: categoryId, isSpecial: true }),
   });
-  assert.equal(specialSubcategory.status, 422);
-  assert.deepEqual(await specialSubcategory.json(), {
-    error: 'SPECIAL_CATEGORY_MUST_BE_ROOT',
-  });
+  assert.equal(requestedSpecialChild.status, 201);
+  assert.equal((await requestedSpecialChild.json() as {
+    category: { isSpecial: boolean };
+  }).category.isSpecial, false);
 
   const childOfSpecial = await app.request(`/menus/${menuId}/categories`, {
     method: 'POST', headers,
-    body: JSON.stringify({ name: 'Invalid child',
+    body: JSON.stringify({ name: 'Premium additions',
       parentCategoryId: specialCategory.id }),
   });
-  assert.equal(childOfSpecial.status, 422);
+  assert.equal(childOfSpecial.status, 201);
+  const specialChild = (await childOfSpecial.json() as {
+    category: { id: number; isSpecial: boolean };
+  }).category;
+  assert.equal(specialChild.isSpecial, true);
 
   const subcategoryResponse = await app.request(`/menus/${menuId}/categories`, {
     method: 'POST', headers,
@@ -131,6 +135,18 @@ test('an admin builds menus with categories, products and room restrictions', as
       categoryId, ingredientIds: [], hallIds: [] }),
   });
   assert.equal(duplicateName.status, 201);
+  const secondProduct = (await duplicateName.json() as {
+    product: { id: number };
+  }).product;
+  const reorder = await app.request(
+    `/categories/${categoryId}/product-order`,
+    {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ productIds: [secondProduct.id, product.id] }),
+    },
+  );
+  assert.equal(reorder.status, 200);
 
   const invalidRestriction = await app.request(`/menus/${menuId}/products`, {
     method: 'POST', headers,
@@ -143,7 +159,7 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json() as { menus: Array<{
     hallIds: number[]; categories: Array<{
-      id: number; isSpecial: boolean; products: unknown[];
+      id: number; isSpecial: boolean; products: Array<{ id: number }>;
       subcategories: Array<{ isSpecial: boolean }>;
     }>;
   }>; ingredients: unknown[] };
@@ -157,9 +173,14 @@ test('an admin builds menus with categories, products and room restrictions', as
     ({ id }) => id === specialCategory.id,
   )!;
   assert.equal(regular.products.length, 2);
+  assert.deepEqual(
+    regular.products.map(({ id }) => id),
+    [secondProduct.id, product.id],
+  );
   assert.equal(regular.subcategories[0].isSpecial, false);
   assert.equal(special.isSpecial, true);
-  assert.equal(special.subcategories.length, 0);
+  assert.equal(special.subcategories.length, 1);
+  assert.equal(special.subcategories[0].isSpecial, true);
   assert.equal(catalog.ingredients.length, 1);
 
   const deactivateResponse = await app.request(`/products/${product.id}`, {

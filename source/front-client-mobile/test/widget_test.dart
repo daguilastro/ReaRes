@@ -407,6 +407,7 @@ void main() {
           id: 101,
           productId: 20,
           name: 'Hamburguesa',
+          categoryName: 'Hamburguesas',
           productDescription: 'Carne y pan artesanal',
           quantity: 1,
           deliveredQuantity: deliveredNormal,
@@ -421,6 +422,7 @@ void main() {
           id: 102,
           productId: 21,
           name: 'Tocineta',
+          categoryName: 'Adiciones',
           productDescription: 'Porción crujiente',
           quantity: 1,
           deliveredQuantity: deliveredSpecial,
@@ -454,6 +456,8 @@ void main() {
 
     expect(find.text('Hamburguesa'), findsOneWidget);
     expect(find.text('+ Tocineta'), findsOneWidget);
+    expect(find.text('Hamburguesas'), findsOneWidget);
+    expect(find.text('Adiciones'), findsOneWidget);
     expect(find.text('Adiciones asociadas'), findsOneWidget);
     expect(find.textContaining('Carne y pan artesanal'), findsOneWidget);
     expect(find.textContaining('Término medio'), findsOneWidget);
@@ -524,6 +528,28 @@ void main() {
                     ),
                   ],
                 ),
+                ClientMenuCategory(
+                  id: 12,
+                  name: 'Hamburguesas',
+                  parentCategoryId: 10,
+                  isSpecial: false,
+                  products: [],
+                ),
+                ClientMenuCategory(
+                  id: 13,
+                  name: 'Toppings',
+                  parentCategoryId: 11,
+                  isSpecial: true,
+                  products: [
+                    ClientMenuProduct(
+                      id: 22,
+                      name: 'Queso extra',
+                      description: null,
+                      value: 500,
+                      ingredients: [],
+                    ),
+                  ],
+                ),
               ],
             ),
           ],
@@ -535,13 +561,25 @@ void main() {
     expect(find.byKey(const ValueKey('order-category-11')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('order-category-10')));
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('order-category-12')));
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('order-category-12')), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('order-category-11')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('order-category-10')));
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('order-product-20')));
     await tester.pumpAndSettle();
     expect(find.text('Hamburguesa'), findsWidgets);
     await tester.tap(find.byKey(const ValueKey('special-category-11')));
     await tester.pumpAndSettle();
-    expect(find.text('Tocineta'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('increase-special-product-21')));
+    await tester.tap(find.byKey(const ValueKey('special-subcategory-13')));
+    await tester.pumpAndSettle();
+    expect(find.text('Queso extra'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('increase-special-product-22')));
     await tester.pump();
     await tester.tap(find.text('Guardar cambios'));
     await tester.pumpAndSettle();
@@ -557,7 +595,7 @@ void main() {
     expect(submitted![1].quantity, 1);
     expect(submitted![1].specifications, isEmpty);
     expect(submitted![1].removedIngredientIds, isEmpty);
-    expect(submitted![2].productId, 21);
+    expect(submitted![2].productId, 22);
     expect(submitted![2].quantity, 1);
     expect(submitted![2].parentIndex, 0);
   });

@@ -103,6 +103,7 @@ class ClientOrderItem {
     required this.parentOrderItemId,
     required this.removedIngredientIds,
     required this.ingredients,
+    this.categoryName = '',
     this.unitValue = 0,
   });
   factory ClientOrderItem.fromJson(
@@ -111,6 +112,7 @@ class ClientOrderItem {
     id: json['id'] as int,
     productId: json['productId'] as int,
     name: json['name'] as String,
+    categoryName: json['categoryName'] as String? ?? '',
     productDescription: json['productDescription'] as String?,
     quantity: json['quantity'] as int,
     deliveredQuantity: json['deliveredQuantity'] as int? ?? 0,
@@ -131,6 +133,7 @@ class ClientOrderItem {
   final int id;
   final int productId;
   final String name;
+  final String categoryName;
   final String? productDescription;
   final int quantity;
   final int deliveredQuantity;
@@ -152,12 +155,14 @@ class ClientRemovedOrderItem {
     required this.quantity,
     required this.specifications,
     required this.parentProductName,
+    this.categoryName = '',
   });
 
   factory ClientRemovedOrderItem.fromJson(Map<String, dynamic> json) =>
       ClientRemovedOrderItem(
         id: json['id'] as int,
         name: json['name'] as String,
+        categoryName: json['categoryName'] as String? ?? '',
         productDescription: json['productDescription'] as String?,
         unitValue: json['unitValue'] as int,
         quantity: json['quantity'] as int,
@@ -167,6 +172,7 @@ class ClientRemovedOrderItem {
 
   final int id;
   final String name;
+  final String categoryName;
   final String? productDescription;
   final int unitValue;
   final int quantity;

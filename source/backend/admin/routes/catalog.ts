@@ -121,13 +121,10 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     const name = text(body.name, 2, 60);
     const parentCategoryId = body.parentCategoryId == null
       ? null : Number(body.parentCategoryId);
-    const isSpecial = body.isSpecial === true;
+    let isSpecial = body.isSpecial === true;
     if (!name || (parentCategoryId !== null &&
         (!Number.isSafeInteger(parentCategoryId) || parentCategoryId < 1))) {
       return c.json({ error: 'INVALID_CATEGORY' }, 422);
-    }
-    if (isSpecial && parentCategoryId !== null) {
-      return c.json({ error: 'SPECIAL_CATEGORY_MUST_BE_ROOT' }, 422);
     }
     if (parentCategoryId !== null) {
       const parent = db().prepare(
@@ -137,9 +134,10 @@ export function createAdminCatalogRoutes(options: Options = {}) {
       ).get(parentCategoryId, menuId) as {
         parentId: number | null; isSpecial: number;
       } | undefined;
-      if (!parent || parent.parentId !== null || parent.isSpecial === 1) {
+      if (!parent || parent.parentId !== null) {
         return c.json({ error: 'INVALID_PARENT_CATEGORY' }, 422);
       }
+      isSpecial = parent.isSpecial === 1;
     }
     try {
       const result = db().prepare(
@@ -190,6 +188,13 @@ export function createAdminCatalogRoutes(options: Options = {}) {
          VALUES (?, ?, ?, ?, ?)`,
       ).run(name, description, value as number, menuId, categoryId);
       const productId = Number(result.lastInsertRowid);
+      database.prepare(
+        `INSERT INTO category_product_positions (category_id, product_id, position)
+         VALUES (?, ?, COALESCE((
+           SELECT MAX(position) + 1 FROM category_product_positions
+           WHERE category_id = ?
+         ), 0))`,
+      ).run(categoryId, productId, categoryId);
       insertRelations(database, 'product_ingredients', 'product_id', productId,
         'ingredient_id', ingredientIds);
       insertRelations(database, 'product_halls', 'product_id', productId, 'hall_id', hallIds);
@@ -245,6 +250,44 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     }
   });
 
+  routes.put('/categories/:categoryId/product-order', async (c) => {
+    const categoryId = positiveId(c.req.param('categoryId'));
+    if (!categoryId || !exists(db(), 'menu_categories', categoryId)) {
+      return c.json({ error: 'CATEGORY_NOT_FOUND' }, 404);
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) return body;
+    const productIds = ids(body.productIds);
+    const currentIds = (db().prepare(
+      `SELECT id FROM products
+       WHERE category_id = ? AND is_active = 1 ORDER BY id`,
+    ).all(categoryId) as Array<{ id: number }>).map(({ id }) => id);
+    if (!productIds || productIds.length !== currentIds.length ||
+        new Set(productIds).size !== productIds.length ||
+        productIds.some((id) => !currentIds.includes(id))) {
+      return c.json({ error: 'INVALID_PRODUCT_ORDER' }, 422);
+    }
+    const database = db();
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      database.prepare(
+        'DELETE FROM category_product_positions WHERE category_id = ?',
+      ).run(categoryId);
+      const insert = database.prepare(
+        `INSERT INTO category_product_positions
+         (category_id, product_id, position) VALUES (?, ?, ?)`,
+      );
+      productIds.forEach((productId, position) => {
+        insert.run(categoryId, productId, position);
+      });
+      database.exec('COMMIT');
+      return c.json({ productIds });
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+      throw error;
+    }
+  });
+
   routes.delete('/products/:productId', (c) => {
     const productId = positiveId(c.req.param('productId'));
     if (!productId) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
@@ -284,8 +327,13 @@ function readMenu(database: DatabaseSync, id: number) {
     parentCategoryId: row.parentCategoryId,
     isSpecial: row.isSpecial === 1,
     products: (database.prepare(
-      `SELECT id FROM products
-       WHERE category_id = ? AND is_active = 1 ORDER BY name COLLATE NOCASE`,
+      `SELECT p.id FROM products p
+       LEFT JOIN category_product_positions ordering
+         ON ordering.category_id = p.category_id
+        AND ordering.product_id = p.id
+       WHERE p.category_id = ? AND p.is_active = 1
+       ORDER BY ordering.position IS NULL, ordering.position,
+                p.name COLLATE NOCASE, p.id`,
     ).all(row.id) as Array<{ id: number }>).map(({ id: productId }) =>
       readProduct(database, productId)),
     subcategories: row.parentCategoryId === null

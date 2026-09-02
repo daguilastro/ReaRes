@@ -10,29 +10,79 @@ type Column = { name: string; type: string };
 
 function ensureSpecialCategoryConstraints(database: DatabaseSync): void {
   database.exec(`
+    DROP TRIGGER IF EXISTS menu_categories_special_root_insert;
+    DROP TRIGGER IF EXISTS menu_categories_special_root_update;
     CREATE TRIGGER IF NOT EXISTS menu_categories_special_root_insert
     BEFORE INSERT ON menu_categories
-    WHEN NEW.parent_category_id IS NOT NULL AND (
-      NEW.is_special = 1 OR EXISTS (
-        SELECT 1 FROM menu_categories parent
-        WHERE parent.id = NEW.parent_category_id AND parent.is_special = 1
-      )
+    WHEN NEW.parent_category_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM menu_categories parent
+      WHERE parent.id = NEW.parent_category_id
+        AND parent.menu_id = NEW.menu_id
+        AND parent.parent_category_id IS NULL
+        AND parent.is_special = NEW.is_special
     )
     BEGIN
-      SELECT RAISE(ABORT, 'SPECIAL_CATEGORY_MUST_BE_ROOT');
+      SELECT RAISE(ABORT, 'INVALID_PARENT_CATEGORY');
     END;
     CREATE TRIGGER IF NOT EXISTS menu_categories_special_root_update
     BEFORE UPDATE OF parent_category_id, is_special ON menu_categories
-    WHEN NEW.parent_category_id IS NOT NULL AND (
-      NEW.is_special = 1 OR EXISTS (
-        SELECT 1 FROM menu_categories parent
-        WHERE parent.id = NEW.parent_category_id AND parent.is_special = 1
-      )
+    WHEN (NEW.parent_category_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM menu_categories parent
+      WHERE parent.id = NEW.parent_category_id
+        AND parent.menu_id = NEW.menu_id
+        AND parent.parent_category_id IS NULL
+        AND parent.is_special = NEW.is_special
+    )) OR EXISTS (
+      SELECT 1 FROM menu_categories child
+      WHERE child.parent_category_id = OLD.id
+        AND (NEW.parent_category_id IS NOT NULL
+             OR child.menu_id != NEW.menu_id
+             OR child.is_special != NEW.is_special)
     )
     BEGIN
-      SELECT RAISE(ABORT, 'SPECIAL_CATEGORY_MUST_BE_ROOT');
+      SELECT RAISE(ABORT, 'INVALID_PARENT_CATEGORY');
     END;
   `);
+}
+
+function migrateSpecialCategoryHierarchy(database: DatabaseSync): void {
+  const table = database.prepare(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'menu_categories'`,
+  ).get() as { sql: string } | undefined;
+  const normalized = table?.sql.toLowerCase()
+    .replaceAll('"', '')
+    .replaceAll(/\s+/g, '') ?? '';
+  if (!normalized.includes('check(is_special=0orparent_category_idisnull)')) {
+    return;
+  }
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN IMMEDIATE;
+    DROP TRIGGER IF EXISTS menu_categories_special_root_insert;
+    DROP TRIGGER IF EXISTS menu_categories_special_root_update;
+    DROP TRIGGER IF EXISTS order_items_special_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_parent_update;
+    CREATE TABLE menu_categories_hierarchy_migration (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      menu_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      parent_category_id INTEGER,
+      is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1)),
+      UNIQUE (menu_id, name),
+      FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_category_id)
+        REFERENCES menu_categories_hierarchy_migration(id) ON DELETE CASCADE
+    );
+    INSERT INTO menu_categories_hierarchy_migration
+      (id, menu_id, name, parent_category_id, is_special)
+      SELECT id, menu_id, name, parent_category_id, is_special
+      FROM menu_categories;
+    DROP TABLE menu_categories;
+    ALTER TABLE menu_categories_hierarchy_migration RENAME TO menu_categories;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+  ensureSpecialOrderItemConstraints(database);
 }
 
 function ensureSpecialOrderItemConstraints(database: DatabaseSync): void {
@@ -305,6 +355,7 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
   if (categoryColumns.length > 0 && !categoryColumns.some(({ name }) => name === 'is_special')) {
     database.exec('ALTER TABLE menu_categories ADD COLUMN is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1));');
   }
+  migrateSpecialCategoryHierarchy(database);
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS ingredient_categories (
@@ -348,11 +399,30 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
       FOREIGN KEY (hall_id) REFERENCES hall(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS category_product_positions (
+      category_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      position INTEGER NOT NULL CHECK (position >= 0),
+      PRIMARY KEY (category_id, product_id),
+      UNIQUE (category_id, position),
+      FOREIGN KEY (category_id) REFERENCES menu_categories(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+    INSERT OR IGNORE INTO category_product_positions
+      (category_id, product_id, position)
+    SELECT category_id, id,
+           ROW_NUMBER() OVER (
+             PARTITION BY category_id
+             ORDER BY value DESC, name COLLATE NOCASE, id
+           ) - 1
+    FROM products;
     CREATE INDEX IF NOT EXISTS menu_halls_hall_id_idx ON menu_halls(hall_id);
     CREATE UNIQUE INDEX IF NOT EXISTS menu_halls_one_primary_per_hall_idx
       ON menu_halls(hall_id) WHERE is_primary = 1;
     CREATE INDEX IF NOT EXISTS menu_categories_menu_id_idx ON menu_categories(menu_id);
     CREATE INDEX IF NOT EXISTS products_category_id_idx ON products(category_id);
+    CREATE INDEX IF NOT EXISTS category_product_positions_product_id_idx
+      ON category_product_positions(product_id);
     CREATE INDEX IF NOT EXISTS product_halls_hall_id_idx ON product_halls(hall_id);
     CREATE INDEX IF NOT EXISTS ingredients_category_id_idx ON ingredients(category_id);
   `);
@@ -469,6 +539,7 @@ export function ensureOrderSchema(database: DatabaseSync): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
       product_name TEXT NOT NULL,
+      category_name TEXT,
       product_description TEXT,
       unit_value INTEGER NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -494,6 +565,12 @@ export function ensureOrderSchema(database: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS activity_log_created_at_idx
       ON activity_log(created_at DESC);
   `);
+  const removedOrderItemColumns = database.prepare(
+    'PRAGMA table_info(removed_order_items)',
+  ).all() as Array<{ name: string }>;
+  if (!removedOrderItemColumns.some(({ name }) => name === 'category_name')) {
+    database.exec('ALTER TABLE removed_order_items ADD COLUMN category_name TEXT');
+  }
   ensureSpecialOrderItemConstraints(database);
 }
 

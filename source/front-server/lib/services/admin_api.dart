@@ -423,6 +423,19 @@ Future<void> deactivateMenuProduct({
   }
 }
 
+Future<void> reorderMenuProducts({
+  required String token,
+  required int categoryId,
+  required List<int> productIds,
+}) async {
+  await _catalogRequest(
+    token: token,
+    method: 'PUT',
+    path: '/api/admin/categories/$categoryId/product-order',
+    payload: {'productIds': productIds},
+  );
+}
+
 Future<Map<String, dynamic>> _catalogRequest({
   required String token,
   required String method,
