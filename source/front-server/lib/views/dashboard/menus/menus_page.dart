@@ -57,6 +57,13 @@ typedef ReorderProducts =
       required int categoryId,
       required List<int> productIds,
     });
+typedef ReorderCategories =
+    Future<void> Function({
+      required String token,
+      required int menuId,
+      required int? parentCategoryId,
+      required List<int> categoryIds,
+    });
 
 class MenusPage extends StatefulWidget {
   const MenusPage({
@@ -72,6 +79,7 @@ class MenusPage extends StatefulWidget {
     this.updateProduct = updateMenuProduct,
     this.deactivateProduct = deactivateMenuProduct,
     this.reorderProducts = reorderMenuProducts,
+    this.reorderCategories = reorderMenuCategories,
   });
   final bool spanish;
   final String token;
@@ -84,6 +92,7 @@ class MenusPage extends StatefulWidget {
   final UpdateProduct updateProduct;
   final DeactivateProduct deactivateProduct;
   final ReorderProducts reorderProducts;
+  final ReorderCategories reorderCategories;
   @override
   State<MenusPage> createState() => _MenusPageState();
 }
@@ -94,6 +103,10 @@ class _MenusPageState extends State<MenusPage> {
   int? _menuId;
   int? _categoryId;
   int? _subcategoryId;
+  final Map<int, List<CatalogProduct>> _productOrderOverrides = {};
+  final Set<int> _savingProductOrder = {};
+  final Map<String, List<MenuCategory>> _categoryOrderOverrides = {};
+  final Set<String> _savingCategoryOrder = {};
   bool _loading = true;
   String? _error;
   bool get _es => widget.spanish;
@@ -123,6 +136,8 @@ class _MenusPageState extends State<MenusPage> {
       ]);
       _catalog = values[0] as CatalogSnapshot;
       _rooms = values[1] as List<RoomSummary>;
+      _productOrderOverrides.clear();
+      _categoryOrderOverrides.clear();
       if (_menuId != null && _menu == null) _resetNavigation();
     } on Object {
       _error = _es
@@ -216,55 +231,51 @@ class _MenusPageState extends State<MenusPage> {
     ],
   );
 
-  Widget _menuDetail(RestaurantMenu menu) => ListView(
-    padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
-    children: [
-      _pageHeader(
-        back: () => setState(_resetNavigation),
-        title: menu.name,
-        subtitle: _assignmentText(menu),
-        actions: [
-          OutlinedButton.icon(
-            key: const ValueKey('add-category'),
-            onPressed: () => _createCategory(menu),
-            icon: const Icon(Icons.category_outlined),
-            label: Text(_es ? 'Añadir categoría' : 'Add category'),
-          ),
-          FilledButton.icon(
-            key: const ValueKey('add-ingredient'),
-            onPressed: _catalog.ingredientCategories.isEmpty
-                ? null
-                : _createIngredientQuick,
-            icon: const Icon(Icons.grass_outlined),
-            label: Text(_es ? 'Añadir ingrediente' : 'Add ingredient'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 24),
-      if (menu.categories.isEmpty)
-        _empty(_es ? 'Crea la primera categoría' : 'Create the first category')
-      else
-        for (final category in menu.categories) ...[
-          _CatalogCard(
-            icon: category.isSpecial
-                ? Icons.auto_awesome_outlined
-                : Icons.category_outlined,
-            title: category.name,
-            badge: category.isSpecial ? (_es ? 'Especial' : 'Special') : null,
-            lines: [
-              '${category.products.length} ${_es ? 'productos' : 'products'}',
-              '${category.subcategories.length} ${_es ? 'subcategorías' : 'subcategories'}',
-            ],
-            onTap: () => setState(() => _categoryId = category.id),
-          ),
-          const SizedBox(height: 14),
-        ],
-    ],
-  );
+  Widget _menuDetail(RestaurantMenu menu) {
+    final categories = _orderedCategories(menu, null, menu.categories);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
+      children: [
+        _pageHeader(
+          back: () => setState(_resetNavigation),
+          title: menu.name,
+          subtitle: _assignmentText(menu),
+          actions: [
+            OutlinedButton.icon(
+              key: const ValueKey('add-category'),
+              onPressed: () => _createCategory(menu),
+              icon: const Icon(Icons.category_outlined),
+              label: Text(_es ? 'Añadir categoría' : 'Add category'),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('add-ingredient'),
+              onPressed: _catalog.ingredientCategories.isEmpty
+                  ? null
+                  : _createIngredientQuick,
+              icon: const Icon(Icons.grass_outlined),
+              label: Text(_es ? 'Añadir ingrediente' : 'Add ingredient'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        if (categories.isEmpty)
+          _empty(
+            _es ? 'Crea la primera categoría' : 'Create the first category',
+          )
+        else
+          _categoryReorderList(menu, null, categories),
+      ],
+    );
+  }
 
   Widget _categoryDetail(MenuCategory category, {bool subcategory = false}) {
     final menu = _menu!;
-    final products = category.products;
+    final products = _productOrderOverrides[category.id] ?? category.products;
+    final subcategories = _orderedCategories(
+      menu,
+      category.id,
+      category.subcategories,
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
       children: [
@@ -301,24 +312,13 @@ class _MenusPageState extends State<MenusPage> {
           ],
         ),
         const SizedBox(height: 24),
-        if (!subcategory && category.subcategories.isNotEmpty) ...[
+        if (!subcategory && subcategories.isNotEmpty) ...[
           Text(
             _es ? 'Subcategorías' : 'Subcategories',
             style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
-          for (final child in category.subcategories) ...[
-            _CatalogCard(
-              icon: Icons.account_tree_outlined,
-              title: child.name,
-              badge: child.isSpecial ? (_es ? 'Especial' : 'Special') : null,
-              lines: [
-                '${child.products.length} ${_es ? 'productos' : 'products'}',
-              ],
-              onTap: () => setState(() => _subcategoryId = child.id),
-            ),
-            const SizedBox(height: 12),
-          ],
+          _categoryReorderList(menu, category.id, subcategories),
           const SizedBox(height: 12),
         ],
         Text(
@@ -335,12 +335,31 @@ class _MenusPageState extends State<MenusPage> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFE5E7E9)),
             ),
-            child: Column(
-              children: [
-                for (var index = 0; index < products.length; index++)
-                  ListTile(
-                    key: ValueKey('menu-product-${products[index].id}'),
-                    onTap: () => _editProduct(menu, products[index]),
+            child: ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: products.length,
+              onReorderItem: _savingProductOrder.contains(category.id)
+                  ? (_, _) {}
+                  : (oldIndex, newIndex) =>
+                        _reorderProduct(category, oldIndex, newIndex),
+              proxyDecorator: (child, _, animation) => AnimatedBuilder(
+                animation: animation,
+                builder: (_, _) => Material(
+                  color: Colors.white,
+                  elevation: 8 * animation.value,
+                  borderRadius: BorderRadius.circular(12),
+                  child: child,
+                ),
+              ),
+              itemBuilder: (context, index) {
+                final product = products[index];
+                return Material(
+                  key: ValueKey('menu-product-${product.id}'),
+                  color: Colors.transparent,
+                  child: ListTile(
+                    onTap: () => _editProduct(menu, product),
                     leading: const CircleAvatar(
                       backgroundColor: Color(0xFFE9EEF3),
                       child: Icon(
@@ -348,59 +367,209 @@ class _MenusPageState extends State<MenusPage> {
                         color: Color(0xFF71859B),
                       ),
                     ),
-                    title: Text(products[index].name),
-                    subtitle: Text(products[index].description ?? ''),
+                    title: Text(product.name),
+                    subtitle: Text(product.description ?? ''),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(formatPesos(products[index].value)),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          key: ValueKey(
-                            'move-product-up-${products[index].id}',
+                        Text(formatPesos(product.value)),
+                        const SizedBox(width: 10),
+                        ReorderableDragStartListener(
+                          key: ValueKey('drag-product-${product.id}'),
+                          index: index,
+                          enabled: !_savingProductOrder.contains(category.id),
+                          child: Tooltip(
+                            message: _es
+                                ? 'Arrastrar para ordenar'
+                                : 'Drag to reorder',
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(
+                                Icons.drag_indicator_rounded,
+                                color: Color(0xFF71859B),
+                              ),
+                            ),
                           ),
-                          tooltip: _es ? 'Mover arriba' : 'Move up',
-                          onPressed: index == 0
-                              ? null
-                              : () => _moveProduct(category, index, -1),
-                          icon: const Icon(Icons.keyboard_arrow_up_rounded),
-                        ),
-                        IconButton(
-                          key: ValueKey(
-                            'move-product-down-${products[index].id}',
-                          ),
-                          tooltip: _es ? 'Mover abajo' : 'Move down',
-                          onPressed: index == products.length - 1
-                              ? null
-                              : () => _moveProduct(category, index, 1),
-                          icon: const Icon(Icons.keyboard_arrow_down_rounded),
                         ),
                         const Icon(Icons.edit_outlined, size: 18),
                       ],
                     ),
                   ),
-              ],
+                );
+              },
             ),
           ),
       ],
     );
   }
 
-  Future<void> _moveProduct(
-    MenuCategory category,
-    int currentIndex,
-    int delta,
+  String _categoryScope(int menuId, int? parentCategoryId) =>
+      '$menuId:${parentCategoryId ?? 'root'}';
+
+  List<MenuCategory> _orderedCategories(
+    RestaurantMenu menu,
+    int? parentCategoryId,
+    List<MenuCategory> fallback,
+  ) =>
+      _categoryOrderOverrides[_categoryScope(menu.id, parentCategoryId)] ??
+      fallback;
+
+  Widget _categoryReorderList(
+    RestaurantMenu menu,
+    int? parentCategoryId,
+    List<MenuCategory> categories,
+  ) {
+    final scope = _categoryScope(menu.id, parentCategoryId);
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: categories.length,
+      onReorderItem: _savingCategoryOrder.contains(scope)
+          ? (_, _) {}
+          : (oldIndex, newIndex) => _reorderCategory(
+              menu,
+              parentCategoryId,
+              categories,
+              oldIndex,
+              newIndex,
+            ),
+      proxyDecorator: (child, _, animation) => AnimatedBuilder(
+        animation: animation,
+        builder: (_, _) => Material(
+          color: Colors.transparent,
+          elevation: 8 * animation.value,
+          borderRadius: BorderRadius.circular(16),
+          child: child,
+        ),
+      ),
+      itemBuilder: (context, index) {
+        final category = categories[index];
+        return Material(
+          key: ValueKey('drag-category-${category.id}'),
+          color: Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _CatalogCard(
+              icon: parentCategoryId == null
+                  ? category.isSpecial
+                        ? Icons.auto_awesome_outlined
+                        : Icons.category_outlined
+                  : Icons.account_tree_outlined,
+              title: category.name,
+              badge: category.isSpecial ? (_es ? 'Especial' : 'Special') : null,
+              lines: [
+                '${category.products.length} ${_es ? 'productos' : 'products'}',
+                if (parentCategoryId == null)
+                  '${category.subcategories.length} ${_es ? 'subcategorías' : 'subcategories'}',
+              ],
+              trailing: ReorderableDragStartListener(
+                key: ValueKey('category-drag-handle-${category.id}'),
+                index: index,
+                enabled: !_savingCategoryOrder.contains(scope),
+                child: Tooltip(
+                  message: _es ? 'Arrastrar para ordenar' : 'Drag to reorder',
+                  child: const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: Icon(
+                      Icons.drag_indicator_rounded,
+                      color: Color(0xFF71859B),
+                    ),
+                  ),
+                ),
+              ),
+              onTap: () => setState(() {
+                if (parentCategoryId == null) {
+                  _categoryId = category.id;
+                } else {
+                  _subcategoryId = category.id;
+                }
+              }),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _reorderCategory(
+    RestaurantMenu menu,
+    int? parentCategoryId,
+    List<MenuCategory> current,
+    int oldIndex,
+    int newIndex,
   ) async {
-    final reordered = [...category.products];
-    final product = reordered.removeAt(currentIndex);
-    reordered.insert(currentIndex + delta, product);
-    await _write(
-      () => widget.reorderProducts(
+    if (newIndex == oldIndex) return;
+    final scope = _categoryScope(menu.id, parentCategoryId);
+    final previous = [...current];
+    final reordered = [...previous];
+    final category = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, category);
+    setState(() {
+      _categoryOrderOverrides[scope] = reordered;
+      _savingCategoryOrder.add(scope);
+    });
+    try {
+      await widget.reorderCategories(
+        token: widget.token,
+        menuId: menu.id,
+        parentCategoryId: parentCategoryId,
+        categoryIds: reordered.map((item) => item.id).toList(),
+      );
+    } on Object {
+      if (!mounted) return;
+      setState(() => _categoryOrderOverrides[scope] = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFB64A4A),
+          content: Text(
+            _es
+                ? 'No se pudo guardar el orden de categorías.'
+                : 'Could not save the category order.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _savingCategoryOrder.remove(scope));
+    }
+  }
+
+  Future<void> _reorderProduct(
+    MenuCategory category,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final previous = [
+      ...(_productOrderOverrides[category.id] ?? category.products),
+    ];
+    if (newIndex == oldIndex) return;
+    final reordered = [...previous];
+    final product = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, product);
+    setState(() {
+      _productOrderOverrides[category.id] = reordered;
+      _savingProductOrder.add(category.id);
+    });
+    try {
+      await widget.reorderProducts(
         token: widget.token,
         categoryId: category.id,
         productIds: reordered.map((item) => item.id).toList(),
-      ),
-    );
+      );
+    } on Object {
+      if (!mounted) return;
+      setState(() => _productOrderOverrides[category.id] = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFB64A4A),
+          content: Text(
+            _es ? 'No se pudo guardar el orden.' : 'Could not save the order.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _savingProductOrder.remove(category.id));
+    }
   }
 
   Widget _pageHeader({
@@ -635,12 +804,14 @@ class _CatalogCard extends StatelessWidget {
     required this.lines,
     required this.onTap,
     this.badge,
+    this.trailing,
   });
   final IconData icon;
   final String title;
   final List<String> lines;
   final VoidCallback onTap;
   final String? badge;
+  final Widget? trailing;
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
@@ -692,7 +863,7 @@ class _CatalogCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right),
+            trailing ?? const Icon(Icons.chevron_right),
           ],
         ),
       ),

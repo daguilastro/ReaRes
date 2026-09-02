@@ -1275,7 +1275,9 @@ function readRoomMenus(database: DatabaseSync, roomId: number) {
     categories: (database.prepare(
       `SELECT id, name, parent_category_id AS parentCategoryId,
               is_special AS isSpecial FROM menu_categories
-       WHERE menu_id = ? ORDER BY name COLLATE NOCASE`,
+       WHERE menu_id = ?
+       ORDER BY parent_category_id IS NOT NULL, parent_category_id,
+                position, name COLLATE NOCASE, id`,
     ).all(menu.id) as Array<{
       id: number; name: string; parentCategoryId: number | null; isSpecial: number;
     }>).map((category) => ({

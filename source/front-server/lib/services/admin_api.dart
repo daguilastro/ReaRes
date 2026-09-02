@@ -436,6 +436,20 @@ Future<void> reorderMenuProducts({
   );
 }
 
+Future<void> reorderMenuCategories({
+  required String token,
+  required int menuId,
+  required int? parentCategoryId,
+  required List<int> categoryIds,
+}) async {
+  await _catalogRequest(
+    token: token,
+    method: 'PUT',
+    path: '/api/admin/menus/$menuId/category-order',
+    payload: {'parentCategoryId': parentCategoryId, 'categoryIds': categoryIds},
+  );
+}
+
 Future<Map<String, dynamic>> _catalogRequest({
   required String token,
   required String method,

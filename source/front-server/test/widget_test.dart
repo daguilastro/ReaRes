@@ -512,6 +512,124 @@ void main() {
     expect(find.byKey(const ValueKey('add-subcategory')), findsOneWidget);
   });
 
+  testWidgets('menu products reorder optimistically by dragging', (
+    tester,
+  ) async {
+    var catalogLoads = 0;
+    List<int>? savedOrder;
+    List<int>? savedCategoryOrder;
+    const products = [
+      CatalogProduct(
+        id: 1,
+        name: 'First',
+        value: 10000,
+        menuId: 4,
+        categoryId: 9,
+        ingredientIds: [],
+        hallIds: [],
+      ),
+      CatalogProduct(
+        id: 2,
+        name: 'Second',
+        value: 9000,
+        menuId: 4,
+        categoryId: 9,
+        ingredientIds: [],
+        hallIds: [],
+      ),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MenusPage(
+            spanish: false,
+            token: 'admin-token',
+            loadCatalog: (_) async {
+              catalogLoads++;
+              return const CatalogSnapshot(
+                ingredients: [],
+                menus: [
+                  RestaurantMenu(
+                    id: 4,
+                    name: 'Dinner',
+                    hallAssignments: [],
+                    categories: [
+                      MenuCategory(
+                        id: 9,
+                        menuId: 4,
+                        name: 'Mains',
+                        products: products,
+                      ),
+                      MenuCategory(
+                        id: 10,
+                        menuId: 4,
+                        name: 'Drinks',
+                        products: [],
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+            loadRooms: (_) async => const [],
+            reorderProducts:
+                ({
+                  required token,
+                  required categoryId,
+                  required productIds,
+                }) async {
+                  savedOrder = productIds;
+                },
+            reorderCategories:
+                ({
+                  required token,
+                  required menuId,
+                  required parentCategoryId,
+                  required categoryIds,
+                }) async {
+                  savedCategoryOrder = categoryIds;
+                },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('menu-card-4')));
+    await tester.pumpAndSettle();
+    final categoryGesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('category-drag-handle-9'))),
+    );
+    await tester.pump();
+    await categoryGesture.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('drag-category-10'))) +
+          const Offset(0, 160),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await categoryGesture.up();
+    await tester.pumpAndSettle();
+    expect(savedCategoryOrder, [10, 9]);
+    expect(catalogLoads, 1);
+    await tester.tap(find.text('Mains'));
+    await tester.pumpAndSettle();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('drag-product-1'))),
+    );
+    await tester.pump();
+    await gesture.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('menu-product-2'))) +
+          const Offset(0, 80),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(savedOrder, [2, 1]);
+    expect(catalogLoads, 1);
+    expect(find.text('First'), findsOneWidget);
+    expect(find.text('Second'), findsOneWidget);
+  });
+
   testWidgets('ingredients are browsed and created inside categories', (
     tester,
   ) async {
@@ -609,8 +727,18 @@ void main() {
 
     expect(find.text('Revenue: 6-month trend'), findsOneWidget);
     final currentMonth = const [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ][DateTime.now().month - 1];
     expect(find.textContaining(currentMonth), findsWidgets);
 

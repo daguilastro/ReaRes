@@ -68,14 +68,15 @@ function migrateSpecialCategoryHierarchy(database: DatabaseSync): void {
       name TEXT NOT NULL,
       parent_category_id INTEGER,
       is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1)),
+      position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
       UNIQUE (menu_id, name),
       FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_category_id)
         REFERENCES menu_categories_hierarchy_migration(id) ON DELETE CASCADE
     );
     INSERT INTO menu_categories_hierarchy_migration
-      (id, menu_id, name, parent_category_id, is_special)
-      SELECT id, menu_id, name, parent_category_id, is_special
+      (id, menu_id, name, parent_category_id, is_special, position)
+      SELECT id, menu_id, name, parent_category_id, is_special, position
       FROM menu_categories;
     DROP TABLE menu_categories;
     ALTER TABLE menu_categories_hierarchy_migration RENAME TO menu_categories;
@@ -355,6 +356,25 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
   if (categoryColumns.length > 0 && !categoryColumns.some(({ name }) => name === 'is_special')) {
     database.exec('ALTER TABLE menu_categories ADD COLUMN is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1));');
   }
+  if (categoryColumns.length > 0 &&
+      !categoryColumns.some(({ name }) => name === 'position')) {
+    database.exec(`
+      ALTER TABLE menu_categories
+        ADD COLUMN position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0);
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY menu_id, COALESCE(parent_category_id, -1)
+                 ORDER BY name COLLATE NOCASE, id
+               ) - 1 AS new_position
+        FROM menu_categories
+      )
+      UPDATE menu_categories
+      SET position = (
+        SELECT new_position FROM ranked WHERE ranked.id = menu_categories.id
+      );
+    `);
+  }
   migrateSpecialCategoryHierarchy(database);
 
   database.exec(`
@@ -389,6 +409,7 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       menu_id INTEGER NOT NULL,
       name TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
       UNIQUE (menu_id, name),
       FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE
     );

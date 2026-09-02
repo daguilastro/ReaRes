@@ -559,6 +559,10 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('order-category-11')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('order-category-10'))).dy,
+      tester.getTopLeft(find.byKey(const ValueKey('order-category-11'))).dy,
+    );
     await tester.tap(find.byKey(const ValueKey('order-category-10')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('order-category-12')));

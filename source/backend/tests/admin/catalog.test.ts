@@ -155,6 +155,19 @@ test('an admin builds menus with categories, products and room restrictions', as
   });
   assert.equal(invalidRestriction.status, 422);
 
+  const reorderCategories = await app.request(
+    `/menus/${menuId}/category-order`,
+    {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        parentCategoryId: null,
+        categoryIds: [specialCategory.id, categoryId],
+      }),
+    },
+  );
+  assert.equal(reorderCategories.status, 200);
+
   const catalogResponse = await app.request('/catalog', { headers });
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json() as { menus: Array<{
@@ -168,6 +181,10 @@ test('an admin builds menus with categories, products and room restrictions', as
   }).hallAssignments, [
     { hallId: 1, isPrimary: true }, { hallId: 2, isPrimary: false },
   ]);
+  assert.deepEqual(
+    catalog.menus[0].categories.map(({ id }) => id),
+    [specialCategory.id, categoryId],
+  );
   const regular = catalog.menus[0].categories.find(({ id }) => id === categoryId)!;
   const special = catalog.menus[0].categories.find(
     ({ id }) => id === specialCategory.id,

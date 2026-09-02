@@ -200,16 +200,33 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       final roots = _categories
           .where((item) => item.parentCategoryId == null)
           .toList();
-      return ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        itemCount: roots.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (_, index) {
-          final category = roots[index];
-          return _CategoryButton(
-            key: ValueKey('order-category-${category.id}'),
-            category: category,
-            onTap: () => setState(() => _categoryId = category.id),
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 1000
+              ? 5
+              : constraints.maxWidth >= 760
+              ? 4
+              : constraints.maxWidth >= 520
+              ? 3
+              : 2;
+          return GridView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            itemCount: roots.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1,
+            ),
+            itemBuilder: (_, index) {
+              final category = roots[index];
+              return _CategoryButton(
+                key: ValueKey('order-category-${category.id}'),
+                category: category,
+                square: true,
+                onTap: () => setState(() => _categoryId = category.id),
+              );
+            },
           );
         },
       );
@@ -841,9 +858,11 @@ class _CategoryButton extends StatelessWidget {
     super.key,
     required this.category,
     required this.onTap,
+    this.square = false,
   });
   final ClientMenuCategory category;
   final VoidCallback onTap;
+  final bool square;
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
@@ -857,39 +876,75 @@ class _CategoryButton extends StatelessWidget {
       splashColor: const Color(0x2271859B),
       hoverColor: const Color(0xFFF2F5F8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF0F5),
-                borderRadius: BorderRadius.circular(12),
+        padding: square
+            ? const EdgeInsets.all(14)
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: square
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF0F5),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.restaurant_menu_rounded,
+                      color: Color(0xFF647C94),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: Center(
+                      child: Text(
+                        category.name,
+                        textAlign: TextAlign.center,
+                        softWrap: true,
+                        style: const TextStyle(
+                          color: Color(0xFF292D32),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          height: 1.15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF0F5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.restaurant_menu_rounded,
+                      color: Color(0xFF647C94),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      category.name,
+                      style: const TextStyle(
+                        color: Color(0xFF292D32),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 14,
+                    color: Color(0xFF98A2AD),
+                  ),
+                ],
               ),
-              child: const Icon(
-                Icons.restaurant_menu_rounded,
-                color: Color(0xFF647C94),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                category.name,
-                style: const TextStyle(
-                  color: Color(0xFF292D32),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 14,
-              color: Color(0xFF98A2AD),
-            ),
-          ],
-        ),
       ),
     ),
   );

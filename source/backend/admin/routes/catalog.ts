@@ -142,14 +142,59 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     try {
       const result = db().prepare(
         `INSERT INTO menu_categories
-         (menu_id, name, parent_category_id, is_special) VALUES (?, ?, ?, ?)`,
-      ).run(menuId, name, parentCategoryId, isSpecial ? 1 : 0);
+         (menu_id, name, parent_category_id, is_special, position)
+         VALUES (?, ?, ?, ?, COALESCE((
+           SELECT MAX(position) + 1 FROM menu_categories
+           WHERE menu_id = ? AND parent_category_id IS ?
+         ), 0))`,
+      ).run(menuId, name, parentCategoryId, isSpecial ? 1 : 0,
+        menuId, parentCategoryId);
       return c.json({ category: { id: Number(result.lastInsertRowid), menuId,
         name, parentCategoryId, isSpecial, products: [], subcategories: [] } }, 201);
     } catch (error) {
       if (String(error).includes('UNIQUE constraint failed')) {
         return c.json({ error: 'CATEGORY_NAME_TAKEN' }, 409);
       }
+      throw error;
+    }
+  });
+
+  routes.put('/menus/:menuId/category-order', async (c) => {
+    const menuId = positiveId(c.req.param('menuId'));
+    if (!menuId || !exists(db(), 'menu', menuId)) {
+      return c.json({ error: 'MENU_NOT_FOUND' }, 404);
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) return body;
+    const parentCategoryId = body.parentCategoryId == null
+      ? null : Number(body.parentCategoryId);
+    if (parentCategoryId !== null &&
+        (!Number.isSafeInteger(parentCategoryId) || parentCategoryId < 1)) {
+      return c.json({ error: 'INVALID_CATEGORY_ORDER' }, 422);
+    }
+    const categoryIds = ids(body.categoryIds);
+    const currentIds = (db().prepare(
+      `SELECT id FROM menu_categories
+       WHERE menu_id = ? AND parent_category_id IS ? ORDER BY id`,
+    ).all(menuId, parentCategoryId) as Array<{ id: number }>).map(({ id }) => id);
+    if (!categoryIds || categoryIds.length !== currentIds.length ||
+        new Set(categoryIds).size !== categoryIds.length ||
+        categoryIds.some((id) => !currentIds.includes(id))) {
+      return c.json({ error: 'INVALID_CATEGORY_ORDER' }, 422);
+    }
+    const database = db();
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      const update = database.prepare(
+        'UPDATE menu_categories SET position = ? WHERE id = ? AND menu_id = ?',
+      );
+      categoryIds.forEach((categoryId, position) => {
+        update.run(position, categoryId, menuId);
+      });
+      database.exec('COMMIT');
+      return c.json({ categoryIds });
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
       throw error;
     }
   });
@@ -316,7 +361,9 @@ function readMenu(database: DatabaseSync, id: number) {
   const rows = database.prepare(
     `SELECT id, name, parent_category_id AS parentCategoryId,
             is_special AS isSpecial
-     FROM menu_categories WHERE menu_id = ? ORDER BY name COLLATE NOCASE`,
+     FROM menu_categories WHERE menu_id = ?
+     ORDER BY parent_category_id IS NOT NULL, parent_category_id,
+              position, name COLLATE NOCASE, id`,
   ).all(id) as Array<{
     id: number; name: string; parentCategoryId: number | null; isSpecial: number;
   }>;
