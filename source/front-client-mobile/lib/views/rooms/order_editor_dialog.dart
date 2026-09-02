@@ -74,22 +74,37 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope<void>(
-    canPop: _categoryId == null && !_saving,
+    canPop: !_selectionExpanded && _categoryId == null && !_saving,
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop && !_saving) _goBack();
     },
     child: Scaffold(
       backgroundColor: const Color(0xFFFAF9F6),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            _header(),
-            const Divider(height: 1),
-            _selectedProducts(),
-            const Divider(height: 1),
-            Expanded(child: _catalog()),
-            const Divider(height: 1),
-            _footer(),
+            Column(
+              children: [
+                _header(),
+                const Divider(height: 1),
+                _selectedProducts(),
+                const Divider(height: 1),
+                Expanded(child: _catalog()),
+                const Divider(height: 1),
+                _footer(),
+              ],
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !_selectionExpanded,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  opacity: _selectionExpanded ? 1 : 0,
+                  child: _expandedSelectedProducts(),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -97,6 +112,10 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   );
 
   void _goBack() {
+    if (_selectionExpanded) {
+      setState(() => _selectionExpanded = false);
+      return;
+    }
     final current = _categories
         .where((category) => category.id == _categoryId)
         .firstOrNull;
@@ -155,95 +174,170 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     final selected = _lines.entries
         .where((entry) => entry.value.quantity > 0)
         .toList();
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topCenter,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            key: const ValueKey('toggle-selected-products'),
-            onTap: selected.isEmpty
-                ? null
-                : () =>
-                      setState(() => _selectionExpanded = !_selectionExpanded),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 14, 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.shopping_basket_outlined,
-                    size: 20,
-                    color: Color(0xFF71859B),
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      selected.isEmpty
-                          ? (_es
-                                ? 'Aún no hay productos seleccionados.'
-                                : 'No products selected yet.')
-                          : '${_es ? 'Pedido actual' : 'Current order'} · '
-                                '${selected.fold<int>(0, (total, entry) => total + entry.value.quantity)}',
-                      style: const TextStyle(
-                        color: Color(0xFF565D64),
-                        fontWeight: FontWeight.w700,
-                      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          key: const ValueKey('toggle-selected-products'),
+          onTap: selected.isEmpty
+              ? null
+              : () => setState(() => _selectionExpanded = true),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 14, 8),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.shopping_basket_outlined,
+                  size: 20,
+                  color: Color(0xFF71859B),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    selected.isEmpty
+                        ? (_es
+                              ? 'Aún no hay productos seleccionados.'
+                              : 'No products selected yet.')
+                        : '${_es ? 'Pedido actual' : 'Current order'} · '
+                              '${selected.fold<int>(0, (total, entry) => total + entry.value.quantity)}',
+                    style: const TextStyle(
+                      color: Color(0xFF565D64),
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  if (selected.isNotEmpty)
-                    AnimatedRotation(
-                      turns: _selectionExpanded ? .5 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      child: const Icon(Icons.keyboard_arrow_down_rounded),
-                    ),
-                ],
-              ),
+                ),
+                if (selected.isNotEmpty)
+                  const Icon(Icons.open_in_full_rounded, size: 18),
+              ],
             ),
           ),
-          if (!_selectionExpanded)
-            SizedBox(
-              height: 55,
-              child: selected.isEmpty
-                  ? const SizedBox.shrink()
-                  : ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-                      itemCount: selected.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
-                      itemBuilder: (_, index) {
-                        final entry = selected[index];
-                        return InputChip(
-                          key: ValueKey('selected-order-line-${entry.key}'),
-                          avatar: CircleAvatar(
-                            child: Text('${entry.value.quantity}'),
-                          ),
-                          label: Text(entry.value.product.name),
-                          onPressed: () =>
-                              setState(() => _selectionExpanded = true),
-                          onDeleted: _canRemove(entry.key)
-                              ? () => _removeOne(entry.key)
-                              : null,
-                          deleteIcon: const Icon(
-                            Icons.remove_circle_outline,
-                            size: 19,
-                          ),
-                        );
-                      },
-                    ),
-            )
-          else
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 300),
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
-                itemCount: selected.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (_, index) => _selectedProductRow(selected[index]),
-              ),
+        ),
+        SizedBox(
+          height: 55,
+          child: selected.isEmpty
+              ? const SizedBox.shrink()
+              : ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+                  itemCount: selected.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (_, index) {
+                    final entry = selected[index];
+                    return InputChip(
+                      key: ValueKey('selected-order-line-${entry.key}'),
+                      avatar: CircleAvatar(
+                        child: Text('${entry.value.quantity}'),
+                      ),
+                      label: Text(entry.value.product.name),
+                      onPressed: () =>
+                          setState(() => _selectionExpanded = true),
+                      onDeleted: _canRemove(entry.key)
+                          ? () => _removeOne(entry.key)
+                          : null,
+                      deleteIcon: const Icon(
+                        Icons.remove_circle_outline,
+                        size: 19,
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _expandedSelectedProducts() {
+    final selected = _lines.entries
+        .where((entry) => entry.value.quantity > 0)
+        .toList();
+    final total = selected.fold<int>(
+      0,
+      (sum, entry) => sum + entry.value.product.value * entry.value.quantity,
+    );
+    return Material(
+      key: const ValueKey('expanded-order-summary'),
+      color: const Color(0xFFFAF9F6),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.shopping_basket_outlined,
+                  color: Color(0xFF71859B),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _es ? 'Pedido actual' : 'Current order',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        '${selected.fold<int>(0, (sum, entry) => sum + entry.value.quantity)} ${_es ? 'productos' : 'items'}',
+                        style: const TextStyle(color: Color(0xFF73777C)),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey('close-expanded-order-summary'),
+                  tooltip: _es ? 'Volver al menú' : 'Back to menu',
+                  onPressed: () => setState(() => _selectionExpanded = false),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
             ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: selected.isEmpty
+                ? Center(
+                    child: Text(
+                      _es ? 'El pedido está vacío.' : 'The order is empty.',
+                      style: const TextStyle(color: Color(0xFF73777C)),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(18),
+                    itemCount: selected.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 9),
+                    itemBuilder: (_, index) =>
+                        _selectedProductRow(selected[index]),
+                  ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 13, 20, 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE0E3E6))),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  _es ? 'Total provisional' : 'Draft total',
+                  style: const TextStyle(
+                    color: Color(0xFF676D73),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  formatPesos(total),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -417,54 +511,58 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         onTap: () => _showProductDetails(product),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      formatPesos(product.value),
-                      style: const TextStyle(
-                        color: Color(0xFF71859B),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if ((product.description ?? '').isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          product.description!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Color(0xFF777B80)),
-                        ),
-                      ),
-                  ],
+              Text(
+                product.name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 12),
-              IconButton(
-                key: ValueKey('decrease-product-${product.id}'),
-                onPressed: quantity == 0 ? null : () => _change(product, -1),
-                icon: const Icon(Icons.remove_circle_outline),
+              const SizedBox(height: 3),
+              Text(
+                formatPesos(product.value),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF71859B),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              SizedBox(
-                width: 24,
-                child: Text('$quantity', textAlign: TextAlign.center),
-              ),
-              IconButton(
-                key: ValueKey('increase-product-${product.id}'),
-                onPressed: () => _change(product, 1),
-                icon: const Icon(Icons.add_circle_outline),
+              if ((product.description ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    product.description!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Color(0xFF777B80)),
+                  ),
+                ),
+              const SizedBox(height: 7),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    key: ValueKey('decrease-product-${product.id}'),
+                    onPressed: quantity == 0
+                        ? null
+                        : () => _change(product, -1),
+                    icon: const Icon(Icons.remove_circle_outline),
+                  ),
+                  SizedBox(
+                    width: 32,
+                    child: Text('$quantity', textAlign: TextAlign.center),
+                  ),
+                  IconButton(
+                    key: ValueKey('increase-product-${product.id}'),
+                    onPressed: () => _change(product, 1),
+                    icon: const Icon(Icons.add_circle_outline),
+                  ),
+                ],
               ),
             ],
           ),
@@ -562,6 +660,22 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
               ),
         );
     int? selectedSpecialCategoryId;
+    final customizationScrollController = ScrollController();
+    var customizationOpen = true;
+    void revealSpecialProducts() {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (!customizationOpen || !customizationScrollController.hasClients) {
+          return;
+        }
+        customizationScrollController.animateTo(
+          customizationScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    }
+
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -627,6 +741,8 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
           content: SizedBox(
             width: 620,
             child: SingleChildScrollView(
+              key: const ValueKey('product-customization-scroll'),
+              controller: customizationScrollController,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -720,12 +836,16 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                                       candidate.parentCategoryId == category.id,
                                 ),
                             quantity: categoryQuantity(category),
-                            onTap: () => modalSetState(() {
-                              selectedSpecialCategoryId =
-                                  selectedSpecialCategoryId == category.id
-                                  ? null
-                                  : category.id;
-                            }),
+                            onTap: () {
+                              final willOpen =
+                                  selectedSpecialCategoryId != category.id;
+                              modalSetState(() {
+                                selectedSpecialCategoryId = willOpen
+                                    ? category.id
+                                    : null;
+                              });
+                              if (willOpen) revealSpecialProducts();
+                            },
                           ),
                       ],
                     ),
@@ -752,10 +872,12 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                               categories: specialCategories,
                               spanish: _es,
                               quantities: specialQuantities,
-                              onCategorySelected: (categoryId) =>
-                                  modalSetState(() {
-                                    selectedSpecialCategoryId = categoryId;
-                                  }),
+                              onCategorySelected: (categoryId) {
+                                modalSetState(() {
+                                  selectedSpecialCategoryId = categoryId;
+                                });
+                                revealSpecialProducts();
+                              },
                               onChanged: (special, delta) => modalSetState(() {
                                 specialQuantities[special.id] =
                                     ((specialQuantities[special.id] ?? 0) +
@@ -821,6 +943,8 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         ),
       ),
     );
+    customizationOpen = false;
+    customizationScrollController.dispose();
     notes.dispose();
   }
 
@@ -1294,43 +1418,45 @@ class _SpecialProductRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-    child: Row(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                product.name,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                formatPesos(product.value),
-                style: const TextStyle(
-                  color: Color(0xFF71859B),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+        Text(
+          product.name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          formatPesos(product.value),
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF71859B),
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        IconButton(
-          key: ValueKey('decrease-special-product-${product.id}'),
-          visualDensity: VisualDensity.compact,
-          onPressed: quantity == 0 ? null : () => onChanged(-1),
-          icon: const Icon(Icons.remove_circle_outline),
-        ),
-        SizedBox(
-          width: 25,
-          child: Text('$quantity', textAlign: TextAlign.center),
-        ),
-        IconButton(
-          key: ValueKey('increase-special-product-${product.id}'),
-          visualDensity: VisualDensity.compact,
-          onPressed: () => onChanged(1),
-          icon: const Icon(Icons.add_circle_outline),
+        const SizedBox(height: 5),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              key: ValueKey('decrease-special-product-${product.id}'),
+              visualDensity: VisualDensity.compact,
+              onPressed: quantity == 0 ? null : () => onChanged(-1),
+              icon: const Icon(Icons.remove_circle_outline),
+            ),
+            SizedBox(
+              width: 32,
+              child: Text('$quantity', textAlign: TextAlign.center),
+            ),
+            IconButton(
+              key: ValueKey('increase-special-product-${product.id}'),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => onChanged(1),
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+          ],
         ),
       ],
     ),

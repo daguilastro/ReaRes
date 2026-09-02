@@ -595,6 +595,14 @@ void main() {
       find.byKey(const ValueKey('expanded-order-line-custom:1')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('expanded-order-summary')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('close-expanded-order-summary')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('submit-order')));
     await tester.pumpAndSettle();
 
