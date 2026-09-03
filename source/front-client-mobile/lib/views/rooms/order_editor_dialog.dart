@@ -12,6 +12,7 @@ class OrderEditorDialog extends StatefulWidget {
     required this.menus,
     required this.existingOrder,
     required this.onSubmit,
+    this.onTransfer,
   });
   final bool spanish;
   final String tableLabel;
@@ -19,6 +20,7 @@ class OrderEditorDialog extends StatefulWidget {
   final ClientOrder? existingOrder;
   final Future<void> Function(String description, List<OrderItemWrite> items)
   onSubmit;
+  final Future<bool> Function()? onTransfer;
   @override
   State<OrderEditorDialog> createState() => _OrderEditorDialogState();
 }
@@ -26,6 +28,7 @@ class OrderEditorDialog extends StatefulWidget {
 class _OrderEditorDialogState extends State<OrderEditorDialog> {
   final Map<String, _DraftLine> _lines = {};
   final List<Map<String, _DraftLine>> _undo = [];
+  final Set<String> _expandedLineKeys = {};
   int _nextLine = 1;
   final _orderDescription = TextEditingController();
   int? _categoryId;
@@ -212,35 +215,32 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             ),
           ),
         ),
-        SizedBox(
-          height: 55,
-          child: selected.isEmpty
-              ? const SizedBox.shrink()
-              : ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-                  itemCount: selected.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (_, index) {
-                    final entry = selected[index];
-                    return InputChip(
-                      key: ValueKey('selected-order-line-${entry.key}'),
-                      avatar: CircleAvatar(
-                        child: Text('${entry.value.quantity}'),
-                      ),
-                      label: Text(entry.value.product.name),
-                      onPressed: () =>
-                          setState(() => _selectionExpanded = true),
-                      onDeleted: _canRemove(entry.key)
-                          ? () => _removeOne(entry.key)
-                          : null,
-                      deleteIcon: const Icon(
-                        Icons.remove_circle_outline,
-                        size: 19,
-                      ),
-                    );
-                  },
-                ),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: selected.isEmpty
+              ? null
+              : () => setState(() => _selectionExpanded = true),
+          child: SizedBox(
+            height: 55,
+            child: selected.isEmpty
+                ? const SizedBox.shrink()
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
+                    itemCount: selected.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (_, index) {
+                      final entry = selected[index];
+                      return Chip(
+                        key: ValueKey('selected-order-line-${entry.key}'),
+                        avatar: CircleAvatar(
+                          child: Text('${entry.value.quantity}'),
+                        ),
+                        label: Text(entry.value.product.name),
+                      );
+                    },
+                  ),
+          ),
         ),
       ],
     );
@@ -287,6 +287,18 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                   ),
                 ),
                 IconButton(
+                  key: const ValueKey('transfer-order'),
+                  tooltip: _es ? 'Trasladar pedido' : 'Transfer order',
+                  onPressed: widget.onTransfer == null || _saving
+                      ? null
+                      : () async {
+                          if (await widget.onTransfer!() && mounted) {
+                            Navigator.pop(context);
+                          }
+                        },
+                  icon: const Icon(Icons.swap_horiz_rounded),
+                ),
+                IconButton(
                   key: const ValueKey('close-expanded-order-summary'),
                   tooltip: _es ? 'Volver al menú' : 'Back to menu',
                   onPressed: () => setState(() => _selectionExpanded = false),
@@ -309,7 +321,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                     itemCount: selected.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 9),
                     itemBuilder: (_, index) =>
-                        _selectedProductRow(selected[index]),
+                        _selectedProductGroup(selected[index]),
                   ),
           ),
           Container(
@@ -343,16 +355,68 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     );
   }
 
+  Widget _selectedProductGroup(MapEntry<String, _DraftLine> entry) {
+    final line = entry.value;
+    final expanded = line.quantity > 1 && _expandedLineKeys.contains(entry.key);
+    return Column(
+      children: [
+        _selectedProductRow(entry),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          child: !expanded
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 7, 4, 2),
+                  child: Column(
+                    children: [
+                      for (var unit = 0; unit < line.quantity; unit++)
+                        _individualUnitRow(entry.key, line, unit),
+                    ],
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _individualUnitRow(String key, _DraftLine line, int unit) {
+    final delivered = unit < line.deliveredQuantity;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: delivered ? const Color(0xFFE8F3E5) : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: ListTile(
+          key: ValueKey('order-line-$key-unit-$unit'),
+          dense: true,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: Color(0xFFE0E3E6)),
+          ),
+          leading: Icon(
+            delivered ? Icons.check_circle_outline : Icons.edit_outlined,
+            color: delivered
+                ? const Color(0xFF5B9B66)
+                : const Color(0xFF71859B),
+          ),
+          title: Text(
+            '${line.product.name} · ${_es ? 'unidad' : 'unit'} ${unit + 1}',
+          ),
+          subtitle: delivered
+              ? Text(_es ? 'Producto entregado' : 'Delivered item')
+              : Text(_es ? 'Editar solo esta unidad' : 'Edit only this unit'),
+          trailing: delivered ? null : const Icon(Icons.chevron_right_rounded),
+          onTap: delivered ? null : () => _editSingleUnit(key, unit),
+        ),
+      ),
+    );
+  }
+
   Widget _selectedProductRow(MapEntry<String, _DraftLine> entry) {
     final line = entry.value;
     final special = line.parentLineKey != null;
-    final categoryName = _categories
-        .where(
-          (category) =>
-              category.products.any((product) => product.id == line.product.id),
-        )
-        .firstOrNull
-        ?.name;
+    final categoryName = _categoryPathForProduct(line.product.id);
     final removed = line.product.ingredients
         .where((item) => line.removedIngredientIds.contains(item.id))
         .map((item) => item.name)
@@ -365,61 +429,139 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
           borderRadius: BorderRadius.circular(12),
           side: const BorderSide(color: Color(0xFFE0E3E6)),
         ),
-        child: ListTile(
+        child: InkWell(
           key: ValueKey('expanded-order-line-${entry.key}'),
-          onTap: () => _showProductDetails(line.product, draftKey: entry.key),
-          leading: CircleAvatar(
-            backgroundColor: const Color(0xFFE9EFF5),
-            child: Text('${line.quantity}'),
-          ),
-          title: Text(
-            special ? '+ ${line.product.name}' : line.product.name,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (categoryName != null)
+          onTap: () {
+            if (line.quantity > 1) {
+              setState(() {
+                if (!_expandedLineKeys.add(entry.key)) {
+                  _expandedLineKeys.remove(entry.key);
+                }
+              });
+            } else {
+              _showProductDetails(line.product, draftKey: entry.key);
+            }
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 Text(
-                  categoryName,
+                  special ? '+ ${line.product.name}' : line.product.name,
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: Color(0xFF71859B),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              if (line.specifications.isNotEmpty) Text(line.specifications),
-              if (removed.isNotEmpty)
-                Text(
-                  '${_es ? 'Sin' : 'No'} $removed',
-                  style: const TextStyle(color: Color(0xFFAA5A56)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 17,
+                      backgroundColor: const Color(0xFFE9EFF5),
+                      child: Text('${line.quantity}'),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        categoryName ?? '',
+                        style: const TextStyle(
+                          color: Color(0xFF71859B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      formatPesos(line.product.value * line.quantity),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    if (line.quantity > 1)
+                      AnimatedRotation(
+                        turns: _expandedLineKeys.contains(entry.key) ? .5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: const Icon(Icons.keyboard_arrow_down_rounded),
+                      ),
+                    if (line.quantity == 1)
+                      IconButton(
+                        tooltip: _es ? 'Editar producto' : 'Edit product',
+                        onPressed: () => _showProductDetails(
+                          line.product,
+                          draftKey: entry.key,
+                        ),
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    if (_canRemove(entry.key))
+                      IconButton(
+                        tooltip: _es ? 'Quitar una unidad' : 'Remove one unit',
+                        onPressed: () => _removeOne(entry.key),
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                  ],
                 ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                formatPesos(line.product.value * line.quantity),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              IconButton(
-                tooltip: _es ? 'Editar producto' : 'Edit product',
-                onPressed: () =>
-                    _showProductDetails(line.product, draftKey: entry.key),
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              if (_canRemove(entry.key))
-                IconButton(
-                  tooltip: _es ? 'Quitar una unidad' : 'Remove one unit',
-                  onPressed: () => _removeOne(entry.key),
-                  icon: const Icon(Icons.remove_circle_outline),
-                ),
-            ],
+                if (line.specifications.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(line.specifications),
+                  ),
+                if (removed.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      '${_es ? 'Sin' : 'No'} $removed',
+                      style: const TextStyle(color: Color(0xFFAA5A56)),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _editSingleUnit(String key, int unit) async {
+    final source = _lines[key];
+    if (source == null ||
+        source.quantity <= 1 ||
+        unit < source.deliveredQuantity) {
+      return;
+    }
+    _remember();
+    final newKey = 'custom:${_nextLine++}';
+    final individual = source.copy()
+      ..quantity = 1
+      ..deliveredQuantity = 0;
+    setState(() {
+      source.quantity--;
+      _lines[newKey] = individual;
+      if (source.quantity <= 1) _expandedLineKeys.remove(key);
+    });
+    await _showProductDetails(individual.product, draftKey: newKey);
+  }
+
+  String? _categoryPathForProduct(int productId) {
+    final category = _categories
+        .where(
+          (candidate) =>
+              candidate.products.any((product) => product.id == productId),
+        )
+        .firstOrNull;
+    if (category == null) return null;
+    final names = <String>[];
+    final visited = <int>{};
+    ClientMenuCategory? current = category;
+    while (current != null && visited.add(current.id)) {
+      names.add(current.name);
+      final parentId = current.parentCategoryId;
+      current = parentId == null
+          ? null
+          : _categories.where((item) => item.id == parentId).firstOrNull;
+    }
+    return names.reversed.join(' › ');
   }
 
   Widget _catalog() {
@@ -643,13 +785,17 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     final specialRoots = specialCategories
         .where((category) => category.parentCategoryId == null)
         .toList();
+    Iterable<ClientMenuCategory> categoryBranch(ClientMenuCategory root) sync* {
+      yield root;
+      for (final child in specialCategories.where(
+        (candidate) => candidate.parentCategoryId == root.id,
+      )) {
+        yield* categoryBranch(child);
+      }
+    }
+
     int categoryQuantity(ClientMenuCategory category) =>
-        [
-          category,
-          ...specialCategories.where(
-            (candidate) => candidate.parentCategoryId == category.id,
-          ),
-        ].fold(
+        categoryBranch(category).fold(
           0,
           (total, candidate) =>
               total +
@@ -944,8 +1090,10 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       ),
     );
     customizationOpen = false;
-    customizationScrollController.dispose();
-    notes.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      customizationScrollController.dispose();
+      notes.dispose();
+    });
   }
 
   String _defaultKey(int productId) => 'default:$productId';

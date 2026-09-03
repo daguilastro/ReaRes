@@ -116,6 +116,26 @@ Future<void> saveTableOrder({
   );
 }
 
+Future<void> saveExternalOrder({
+  required ClientSession session,
+  required int roomId,
+  required String externalName,
+  required String description,
+  required List<OrderItemWrite> items,
+}) async {
+  await _requestJson(
+    session: session,
+    method: 'POST',
+    path: '/rooms/$roomId/external-orders',
+    payload: {
+      'externalName': externalName,
+      'description': description,
+      'items': items.map((item) => item.toJson()).toList(),
+    },
+    expectedStatus: HttpStatus.created,
+  );
+}
+
 Future<ClientOrder> markOrderEating({
   required ClientSession session,
   required int roomId,
@@ -126,6 +146,21 @@ Future<ClientOrder> markOrderEating({
     method: 'PATCH',
     path: '/rooms/$roomId/orders/$orderId/status',
     payload: {'status': 'eating'},
+  );
+  return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
+}
+
+Future<ClientOrder> transferTableOrder({
+  required ClientSession session,
+  required int roomId,
+  required int orderId,
+  required int tableId,
+}) async {
+  final body = await _requestJson(
+    session: session,
+    method: 'PATCH',
+    path: '/rooms/$roomId/orders/$orderId/transfer',
+    payload: {'tableId': tableId},
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
 }

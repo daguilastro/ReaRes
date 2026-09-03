@@ -104,6 +104,10 @@ class MenuCategory {
   final bool isSpecial;
   final List<CatalogProduct> products;
   final List<MenuCategory> subcategories;
+
+  int get recursiveProductCount =>
+      products.length +
+      subcategories.fold(0, (sum, child) => sum + child.recursiveProductCount);
 }
 
 class MenuHallAssignment {
@@ -149,16 +153,8 @@ class RestaurantMenu {
       .where((item) => !item.isPrimary)
       .map((item) => item.hallId)
       .toList();
-  int get productCount => categories.fold(
-    0,
-    (sum, item) =>
-        sum +
-        item.products.length +
-        item.subcategories.fold(
-          0,
-          (subtotal, child) => subtotal + child.products.length,
-        ),
-  );
+  int get productCount =>
+      categories.fold(0, (sum, item) => sum + item.recursiveProductCount);
 }
 
 class CatalogSnapshot {

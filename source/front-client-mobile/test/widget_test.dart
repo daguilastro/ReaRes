@@ -344,6 +344,7 @@ void main() {
     expect(find.byKey(const ValueKey('live-mode-edit')), findsOneWidget);
     expect(find.byKey(const ValueKey('live-mode-bill')), findsOneWidget);
     expect(find.byKey(const ValueKey('live-mode-select')), findsOneWidget);
+    expect(find.byKey(const ValueKey('external-orders')), findsOneWidget);
     expect(find.byKey(const ValueKey('live-table-13')), findsOneWidget);
     final toolbarCenter = tester.getCenter(
       find.byKey(const ValueKey('live-bottom-tools')),
@@ -676,7 +677,9 @@ void main() {
       ),
     );
 
-    final line = find.byKey(const ValueKey('selected-order-line-existing:70'));
+    await tester.tap(find.byKey(const ValueKey('toggle-selected-products')));
+    await tester.pumpAndSettle();
+    final line = find.byKey(const ValueKey('expanded-order-line-existing:70'));
     final remove = find.descendant(
       of: line,
       matching: find.byIcon(Icons.remove_circle_outline),
@@ -684,11 +687,100 @@ void main() {
     expect(remove, findsOneWidget);
     await tester.tap(remove);
     await tester.pump();
-    expect(tester.widget<InputChip>(line).onDeleted, isNull);
+    expect(
+      find.descendant(
+        of: line,
+        matching: find.byIcon(Icons.remove_circle_outline),
+      ),
+      findsNothing,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('close-expanded-order-summary')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('submit-order')));
     await tester.pumpAndSettle();
     expect(submitted, hasLength(1));
     expect(submitted!.single.quantity, 1);
+  });
+
+  testWidgets('a grouped product can be customized one unit at a time', (
+    tester,
+  ) async {
+    List<OrderItemWrite>? submitted;
+    const product = ClientMenuProduct(
+      id: 30,
+      name: 'Hamburguesa muy larga',
+      description: null,
+      value: 18000,
+      ingredients: [],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OrderEditorDialog(
+          spanish: true,
+          tableLabel: '5',
+          menus: const [
+            ClientRoomMenu(
+              id: 1,
+              name: 'Principal',
+              isPrimary: true,
+              categories: [
+                ClientMenuCategory(
+                  id: 10,
+                  name: 'Comidas',
+                  parentCategoryId: null,
+                  isSpecial: false,
+                  products: [product],
+                ),
+              ],
+            ),
+          ],
+          existingOrder: null,
+          onSubmit: (_, items) async => submitted = items,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('order-category-10')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('increase-product-30')));
+    await tester.tap(find.byKey(const ValueKey('increase-product-30')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('toggle-selected-products')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('expanded-order-line-default:30')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('order-line-default:30-unit-0')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('order-line-default:30-unit-1')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('order-line-default:30-unit-0')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Sin cebolla');
+    await tester.tap(find.text('Guardar cambios'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('close-expanded-order-summary')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('submit-order')));
+    await tester.pumpAndSettle();
+
+    expect(submitted, hasLength(2));
+    expect(submitted!.map((item) => item.quantity), everyElement(1));
+    expect(
+      submitted!.map((item) => item.specifications),
+      containsAll(<String>['', 'Sin cebolla']),
+    );
   });
 
   testWidgets('an entirely pending order can be submitted empty', (
@@ -751,7 +843,9 @@ void main() {
       ),
     );
 
-    final line = find.byKey(const ValueKey('selected-order-line-existing:80'));
+    await tester.tap(find.byKey(const ValueKey('toggle-selected-products')));
+    await tester.pumpAndSettle();
+    final line = find.byKey(const ValueKey('expanded-order-line-existing:80'));
     await tester.tap(
       find.descendant(
         of: line,
@@ -760,6 +854,10 @@ void main() {
     );
     await tester.pump();
     expect(find.text('Eliminar pedido'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('close-expanded-order-summary')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('submit-order')));
     await tester.pumpAndSettle();
     expect(submitted, isEmpty);

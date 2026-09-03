@@ -175,19 +175,25 @@ CREATE TABLE IF NOT EXISTS "product_halls" (
 CREATE TABLE IF NOT EXISTS "orders" (
 	"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 	"author_id" INTEGER NOT NULL,
-	"table_id" INTEGER NOT NULL,
+	"table_id" INTEGER,
 	"table_group_id" INTEGER,
+	"hall_id" INTEGER,
+	"external_name" TEXT,
 	"description" TEXT,
 	"receiver" TEXT,
 	"status" TEXT NOT NULL DEFAULT 'waiting' CHECK ("status" IN ('waiting', 'eating', 'closed')),
 	"created_at" DATETIME NOT NULL,
 	"updated_at" DATETIME NOT NULL,
+	CHECK (("external_name" IS NULL AND "table_id" IS NOT NULL)
+		OR ("external_name" IS NOT NULL AND "table_id" IS NULL
+			AND "table_group_id" IS NULL AND "hall_id" IS NOT NULL)),
 	FOREIGN KEY ("author_id") REFERENCES "users"("id")
 	ON UPDATE NO ACTION ON DELETE NO ACTION,
 	FOREIGN KEY ("table_id") REFERENCES "hall_tables"("id")
 	ON UPDATE NO ACTION ON DELETE NO ACTION,
 	FOREIGN KEY ("table_group_id") REFERENCES "table_groups"("id")
-	ON UPDATE NO ACTION ON DELETE SET NULL
+	ON UPDATE NO ACTION ON DELETE SET NULL,
+	FOREIGN KEY ("hall_id") REFERENCES "hall"("id") ON DELETE NO ACTION
 );
 
 CREATE TABLE IF NOT EXISTS "order_items" (
@@ -304,7 +310,6 @@ WHEN NEW."parent_category_id" IS NOT NULL AND NOT EXISTS (
 	SELECT 1 FROM "menu_categories" AS parent
 	WHERE parent."id" = NEW."parent_category_id"
 	  AND parent."menu_id" = NEW."menu_id"
-	  AND parent."parent_category_id" IS NULL
 	  AND parent."is_special" = NEW."is_special"
 )
 BEGIN
@@ -317,13 +322,19 @@ WHEN (NEW."parent_category_id" IS NOT NULL AND NOT EXISTS (
 	SELECT 1 FROM "menu_categories" AS parent
 	WHERE parent."id" = NEW."parent_category_id"
 	  AND parent."menu_id" = NEW."menu_id"
-	  AND parent."parent_category_id" IS NULL
 	  AND parent."is_special" = NEW."is_special"
-)) OR EXISTS (
+)) OR NEW."parent_category_id" = NEW."id" OR NEW."parent_category_id" IN (
+	WITH RECURSIVE descendants("id") AS (
+		SELECT "id" FROM "menu_categories" WHERE "parent_category_id" = OLD."id"
+		UNION ALL
+		SELECT child."id" FROM "menu_categories" AS child
+		JOIN descendants ON child."parent_category_id" = descendants."id"
+	)
+	SELECT "id" FROM descendants
+) OR EXISTS (
 	SELECT 1 FROM "menu_categories" AS child
 	WHERE child."parent_category_id" = OLD."id"
-	  AND (NEW."parent_category_id" IS NOT NULL
-	       OR child."menu_id" != NEW."menu_id"
+	  AND (child."menu_id" != NEW."menu_id"
 	       OR child."is_special" != NEW."is_special")
 )
 BEGIN

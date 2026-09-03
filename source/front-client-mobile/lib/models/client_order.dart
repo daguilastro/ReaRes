@@ -188,6 +188,7 @@ class ClientOrder {
     required this.status,
     required this.description,
     required this.items,
+    this.externalName,
     this.tableLabel = '',
     this.total = 0,
     this.createdAt,
@@ -195,8 +196,9 @@ class ClientOrder {
   });
   factory ClientOrder.fromJson(Map<String, dynamic> json) => ClientOrder(
     id: json['id'] as int,
-    tableId: json['tableId'] as int,
+    tableId: json['tableId'] as int? ?? 0,
     tableGroupId: json['tableGroupId'] as int?,
+    externalName: json['externalName'] as String?,
     status: json['status'] as String,
     description: json['description'] as String?,
     items: (json['items'] as List)
@@ -215,6 +217,7 @@ class ClientOrder {
   final int id;
   final int tableId;
   final int? tableGroupId;
+  final String? externalName;
   final String status;
   final String? description;
   final List<ClientOrderItem> items;
@@ -222,6 +225,7 @@ class ClientOrder {
   final int total;
   final String? createdAt;
   final List<ClientRemovedOrderItem> removedItems;
+  bool get isExternal => externalName != null;
 }
 
 class OrderItemWrite {

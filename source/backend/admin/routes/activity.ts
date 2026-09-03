@@ -71,8 +71,8 @@ function normalizeLegacyOrderReference(
   const match = modification.match(/pedido\s+(\d+)/i);
   if (!match) return modification;
   const order = database.prepare(
-    `SELECT COALESCE(g.visible_identifier, t.identifier) AS tableLabel
-     FROM orders o JOIN hall_tables t ON t.id = o.table_id
+    `SELECT COALESCE(o.external_name, g.visible_identifier, t.identifier) AS tableLabel
+     FROM orders o LEFT JOIN hall_tables t ON t.id = o.table_id
      LEFT JOIN table_groups g ON g.id = o.table_group_id
      WHERE o.id = ?`,
   ).get(Number(match[1])) as { tableLabel: string } | undefined;

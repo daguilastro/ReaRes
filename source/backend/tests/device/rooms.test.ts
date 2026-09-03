@@ -141,6 +141,59 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   );
   assert.equal((await app.request('/rooms/2/menus', { headers })).status, 403);
 
+  const externalResponse = await app.request('/rooms/1/external-orders', {
+    method: 'POST', headers,
+    body: JSON.stringify({
+      externalName: 'Vecino 4B',
+      description: 'Para llevar',
+      items: [{ productId: 1, quantity: 1, specifications: '',
+        removedIngredientIds: [], parentIndex: null }],
+    }),
+  });
+  assert.equal(externalResponse.status, 201);
+  const external = await externalResponse.json() as { order: {
+    id: number; tableId: null; externalName: string;
+    items: Array<{ id: number }>;
+  } };
+  assert.equal(external.order.tableId, null);
+  assert.equal(external.order.externalName, 'Vecino 4B');
+  const deliveredExternal = await app.request(
+    `/rooms/1/orders/${external.order.id}/items/${external.order.items[0].id}/units/0/deliver`,
+    { method: 'PATCH', headers },
+  );
+  assert.equal(deliveredExternal.status, 200);
+  const billedExternal = await app.request(
+    `/rooms/1/orders/${external.order.id}/status`,
+    { method: 'PATCH', headers, body: JSON.stringify({ status: 'closed' }) },
+  );
+  assert.equal(billedExternal.status, 200);
+
+  const transferableResponse = await app.request('/rooms/1/tables/2/orders', {
+    method: 'POST', headers,
+    body: JSON.stringify({ items: [
+      { productId: 1, quantity: 1, specifications: '',
+        removedIngredientIds: [], parentIndex: null },
+    ] }),
+  });
+  assert.equal(transferableResponse.status, 201);
+  const transferable = await transferableResponse.json() as {
+    order: { id: number };
+  };
+  const transferred = await app.request(
+    `/rooms/1/orders/${transferable.order.id}/transfer`,
+    { method: 'PATCH', headers, body: JSON.stringify({ tableId: 1 }) },
+  );
+  assert.equal(transferred.status, 200);
+  assert.equal((database.prepare(
+    'SELECT status FROM hall_tables WHERE id = 2',
+  ).get() as { status: string }).status, 'available');
+  assert.equal((database.prepare(
+    'SELECT status FROM hall_tables WHERE id = 1',
+  ).get() as { status: string }).status, 'waiting');
+  await app.request(`/rooms/1/orders/${transferable.order.id}`, {
+    method: 'PUT', headers, body: JSON.stringify({ items: [] }),
+  });
+
   const standaloneSpecial = await app.request('/rooms/1/tables/2/orders', {
     method: 'POST', headers,
     body: JSON.stringify({ items: [
@@ -190,8 +243,9 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   assert.equal((database.prepare('SELECT status FROM hall_tables WHERE id = 1').get() as
     { status: string }).status, 'waiting');
   assert.equal((database.prepare(
-    "SELECT COUNT(*) AS count FROM order_modifications WHERE modification_type = 'create'",
-  ).get() as { count: number }).count, 1);
+    `SELECT COUNT(*) AS count FROM order_modifications
+     WHERE modification_type = 'create' AND order_id = ?`,
+  ).get(order.order.id) as { count: number }).count, 1);
   assert.equal(realtimeMessages.at(-1)?.type, 'room-orders-changed');
   assert.equal(realtimeMessages.at(-1)?.roomId, 1);
 
@@ -316,7 +370,7 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
     .run(todayAtTwo.toISOString(), order.order.id);
   const today = await app.request('/rooms/1/orders/today', { headers });
   assert.equal(today.status, 200);
-  assert.equal((await today.json() as { orders: unknown[] }).orders.length, 1);
+  assert.equal((await today.json() as { orders: unknown[] }).orders.length, 2);
   assert.equal(realtimeMessages.at(-1)?.type, 'room-orders-changed');
 
   const addedItem = await app.request(`/rooms/1/orders/${order.order.id}`, {
@@ -387,7 +441,7 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   ]);
   assert.equal((database.prepare(
     "SELECT COUNT(*) AS count FROM activity_log WHERE type IN ('Pedido', 'Mesa', 'Mesas')",
-  ).get() as { count: number }).count, 12);
+  ).get() as { count: number }).count, 18);
 
   database.prepare(
     `INSERT INTO users (id, name, role, username, password_hash)

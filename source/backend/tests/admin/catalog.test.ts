@@ -95,6 +95,26 @@ test('an admin builds menus with categories, products and room restrictions', as
     category: { id: number; isSpecial: boolean };
   }).category;
   assert.equal(specialChild.isSpecial, true);
+  const specialGrandchildResponse = await app.request(
+    `/menus/${menuId}/categories`,
+    {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        name: 'Cheese additions', parentCategoryId: specialChild.id,
+      }),
+    },
+  );
+  assert.equal(specialGrandchildResponse.status, 201);
+  const specialGrandchild = (await specialGrandchildResponse.json() as {
+    category: { id: number; isSpecial: boolean };
+  }).category;
+  assert.equal(specialGrandchild.isSpecial, true);
+  assert.throws(
+    () => database.prepare(
+      'UPDATE menu_categories SET parent_category_id = ? WHERE id = ?',
+    ).run(specialGrandchild.id, specialCategory.id),
+    /INVALID_PARENT_CATEGORY/,
+  );
 
   const subcategoryResponse = await app.request(`/menus/${menuId}/categories`, {
     method: 'POST', headers,
@@ -205,6 +225,20 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.equal(special.isSpecial, true);
   assert.equal(special.subcategories.length, 1);
   assert.equal(special.subcategories[0].isSpecial, true);
+  assert.deepEqual(
+    (special.subcategories[0] as unknown as {
+      subcategories: Array<{ id: number; isSpecial: boolean }>;
+    }).subcategories,
+    [{
+      id: specialGrandchild.id,
+      name: 'Cheese additions',
+      menuId,
+      parentCategoryId: specialChild.id,
+      isSpecial: true,
+      products: [],
+      subcategories: [],
+    }],
+  );
   assert.equal(catalog.ingredients.length, 1);
 
   const deactivateResponse = await app.request(`/products/${product.id}`, {

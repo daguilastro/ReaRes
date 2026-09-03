@@ -18,7 +18,6 @@ function ensureSpecialCategoryConstraints(database: DatabaseSync): void {
       SELECT 1 FROM menu_categories parent
       WHERE parent.id = NEW.parent_category_id
         AND parent.menu_id = NEW.menu_id
-        AND parent.parent_category_id IS NULL
         AND parent.is_special = NEW.is_special
     )
     BEGIN
@@ -30,13 +29,19 @@ function ensureSpecialCategoryConstraints(database: DatabaseSync): void {
       SELECT 1 FROM menu_categories parent
       WHERE parent.id = NEW.parent_category_id
         AND parent.menu_id = NEW.menu_id
-        AND parent.parent_category_id IS NULL
         AND parent.is_special = NEW.is_special
-    )) OR EXISTS (
+    )) OR NEW.parent_category_id = NEW.id OR NEW.parent_category_id IN (
+      WITH RECURSIVE descendants(id) AS (
+        SELECT id FROM menu_categories WHERE parent_category_id = OLD.id
+        UNION ALL
+        SELECT child.id FROM menu_categories child
+        JOIN descendants ON child.parent_category_id = descendants.id
+      )
+      SELECT id FROM descendants
+    ) OR EXISTS (
       SELECT 1 FROM menu_categories child
       WHERE child.parent_category_id = OLD.id
-        AND (NEW.parent_category_id IS NOT NULL
-             OR child.menu_id != NEW.menu_id
+        AND (child.menu_id != NEW.menu_id
              OR child.is_special != NEW.is_special)
     )
     BEGIN
@@ -496,7 +501,57 @@ function removeProductNameUniqueness(database: DatabaseSync): void {
 }
 
 export function ensureOrderSchema(database: DatabaseSync): void {
-  const orderColumns = database.prepare('PRAGMA table_info(orders)').all() as Column[];
+  let orderColumns = database.prepare('PRAGMA table_info(orders)').all() as Array<
+    Column & { notnull: number }
+  >;
+  const legacyRequiredTable = orderColumns.find(({ name }) => name === 'table_id')
+    ?.notnull === 1;
+  if (orderColumns.length > 0 && (legacyRequiredTable ||
+      !orderColumns.some(({ name }) => name === 'external_name') ||
+      !orderColumns.some(({ name }) => name === 'hall_id'))) {
+    const hasHallId = orderColumns.some(({ name }) => name === 'hall_id');
+    const hasExternalName = orderColumns.some(({ name }) => name === 'external_name');
+    database.exec(`
+      PRAGMA foreign_keys = OFF;
+      BEGIN IMMEDIATE;
+      CREATE TABLE orders_destination_migration (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_id INTEGER NOT NULL,
+        table_id INTEGER,
+        table_group_id INTEGER,
+        hall_id INTEGER,
+        external_name TEXT,
+        description TEXT,
+        receiver TEXT,
+        status TEXT NOT NULL DEFAULT 'waiting'
+          CHECK (status IN ('waiting', 'eating', 'closed')),
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        CHECK ((external_name IS NULL AND table_id IS NOT NULL)
+          OR (external_name IS NOT NULL AND table_id IS NULL
+            AND table_group_id IS NULL AND hall_id IS NOT NULL)),
+        FOREIGN KEY (author_id) REFERENCES users(id),
+        FOREIGN KEY (table_id) REFERENCES hall_tables(id),
+        FOREIGN KEY (table_group_id) REFERENCES table_groups(id) ON DELETE SET NULL,
+        FOREIGN KEY (hall_id) REFERENCES hall(id)
+      );
+      INSERT INTO orders_destination_migration
+        (id, author_id, table_id, table_group_id, hall_id, external_name,
+         description, receiver, status, created_at, updated_at)
+      SELECT id, author_id, table_id, table_group_id,
+             ${hasHallId ? 'hall_id' : 'NULL'},
+             ${hasExternalName ? 'external_name' : 'NULL'},
+             description, receiver, status, created_at, updated_at
+      FROM orders;
+      DROP TABLE orders;
+      ALTER TABLE orders_destination_migration RENAME TO orders;
+      COMMIT;
+      PRAGMA foreign_keys = ON;
+    `);
+    orderColumns = database.prepare('PRAGMA table_info(orders)').all() as Array<
+      Column & { notnull: number }
+    >;
+  }
   if (orderColumns.length > 0 && !orderColumns.some(({ name }) => name === 'status')) {
     database.exec(
       "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'eating', 'closed'));",

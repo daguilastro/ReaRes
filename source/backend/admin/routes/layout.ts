@@ -39,10 +39,10 @@ export function createAdminLayoutRoutes(options: Options = {}) {
   routes.get('/rooms', (c) => {
     const rooms = db().prepare(
       `WITH order_totals AS (
-         SELECT o.id AS order_id, t.hall_id,
+         SELECT o.id AS order_id, COALESCE(o.hall_id, t.hall_id) AS hall_id,
                 COALESCE(SUM(p.value * oi.quantity), 0) AS total
          FROM orders o
-         JOIN hall_tables t ON t.id = o.table_id
+         LEFT JOIN hall_tables t ON t.id = o.table_id
          LEFT JOIN order_items oi ON oi.order_id = o.id
          LEFT JOIN products p ON p.id = oi.product_id
          WHERE o.status = 'closed'

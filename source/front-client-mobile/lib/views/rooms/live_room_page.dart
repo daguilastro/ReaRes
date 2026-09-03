@@ -49,11 +49,26 @@ typedef WriteTableOrder =
       required String description,
       required List<OrderItemWrite> items,
     });
+typedef WriteExternalOrder =
+    Future<void> Function({
+      required ClientSession session,
+      required int roomId,
+      required String externalName,
+      required String description,
+      required List<OrderItemWrite> items,
+    });
 typedef SetOrderEating =
     Future<ClientOrder> Function({
       required ClientSession session,
       required int roomId,
       required int orderId,
+    });
+typedef TransferTableOrder =
+    Future<ClientOrder> Function({
+      required ClientSession session,
+      required int roomId,
+      required int orderId,
+      required int tableId,
     });
 typedef DeliverOrderItem =
     Future<ClientOrder> Function({
@@ -84,7 +99,9 @@ class LiveRoomPage extends StatefulWidget {
     this.loadTodayOrders = getTodayRoomOrders,
     this.loadMenus = getRoomMenus,
     this.writeOrder = saveTableOrder,
+    this.writeExternalOrder = saveExternalOrder,
     this.setEating = markOrderEating,
+    this.transferOrder = transferTableOrder,
     this.deliverItem = deliverOrderItem,
     this.undoDeliveredItem = undoDeliveredOrderItem,
     this.setClosed = markOrderClosed,
@@ -100,13 +117,24 @@ class LiveRoomPage extends StatefulWidget {
   final LoadTodayRoomOrders loadTodayOrders;
   final LoadRoomMenus loadMenus;
   final WriteTableOrder writeOrder;
+  final WriteExternalOrder writeExternalOrder;
   final SetOrderEating setEating;
+  final TransferTableOrder transferOrder;
   final DeliverOrderItem deliverItem;
   final UndoDeliveredOrderItem undoDeliveredItem;
   final SetOrderClosed setClosed;
 
   @override
   State<LiveRoomPage> createState() => _LiveRoomPageState();
+}
+
+class _CreateExternalOrderIntent {
+  const _CreateExternalOrderIntent();
+}
+
+class _EditExternalOrderIntent {
+  const _EditExternalOrderIntent(this.order);
+  final ClientOrder order;
 }
 
 class _LiveRoomPageState extends State<LiveRoomPage> {
@@ -277,7 +305,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   : Stack(
                       children: [
                         Positioned.fill(child: _canvas()),
-                        Positioned(left: 16, top: 16, child: _historyButton()),
+                        Positioned(
+                          left: 16,
+                          top: 16,
+                          child: Row(
+                            children: [
+                              _historyButton(),
+                              const SizedBox(width: 9),
+                              _externalOrdersButton(),
+                            ],
+                          ),
+                        ),
                         Positioned(
                           left: 16,
                           right: 16,
@@ -304,6 +342,341 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       icon: const Icon(Icons.history_rounded),
     ),
   );
+
+  Widget _externalOrdersButton() {
+    final count = _orders.where((order) => order.isExternal).length;
+    return Badge(
+      isLabelVisible: count > 0,
+      label: Text('$count'),
+      child: Material(
+        elevation: 5,
+        color: count > 0 ? const Color(0xFFFFF1B8) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        child: IconButton(
+          key: const ValueKey('external-orders'),
+          tooltip: widget.spanish ? 'Pedidos externos' : 'External orders',
+          onPressed: _openExternalOrders,
+          icon: const Icon(Icons.takeout_dining_outlined),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openExternalOrders() async {
+    final active = _orders.where((order) => order.isExternal).toList();
+    final selection = await showGeneralDialog<Object>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'External orders',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 180),
+      transitionBuilder: (_, animation, _, child) =>
+          FadeTransition(opacity: animation, child: child),
+      pageBuilder: (dialogContext, _, _) => SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
+            child: Material(
+              color: const Color(0xFFFAF9F6),
+              borderRadius: BorderRadius.circular(22),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 15, 10, 13),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.takeout_dining_outlined),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            widget.spanish
+                                ? 'Pedidos externos'
+                                : 'External orders',
+                            style: const TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        FilledButton.icon(
+                          key: const ValueKey('create-external-order'),
+                          onPressed: () => Navigator.pop(
+                            dialogContext,
+                            const _CreateExternalOrderIntent(),
+                          ),
+                          icon: const Icon(Icons.add),
+                          label: Text(widget.spanish ? 'Nuevo' : 'New'),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: active.isEmpty
+                        ? Center(
+                            child: Text(
+                              widget.spanish
+                                  ? 'No hay pedidos externos activos.'
+                                  : 'There are no active external orders.',
+                              style: const TextStyle(color: Color(0xFF73777C)),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: active.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 9),
+                            itemBuilder: (_, index) {
+                              final order = active[index];
+                              return ListTile(
+                                key: ValueKey('external-order-${order.id}'),
+                                tileColor: order.status == 'waiting'
+                                    ? const Color(0xFFFFF1B8)
+                                    : const Color(0xFFDDF1D9),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
+                                ),
+                                leading: Icon(
+                                  order.status == 'waiting'
+                                      ? Icons.schedule_rounded
+                                      : Icons.restaurant_rounded,
+                                ),
+                                title: Text(
+                                  order.externalName!,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  order.status == 'waiting'
+                                      ? (widget.spanish
+                                            ? 'Esperando productos'
+                                            : 'Waiting for items')
+                                      : (widget.spanish
+                                            ? 'Comiendo'
+                                            : 'Eating'),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      key: ValueKey(
+                                        'edit-external-order-${order.id}',
+                                      ),
+                                      tooltip: widget.spanish
+                                          ? 'Añadir o modificar productos'
+                                          : 'Add or edit items',
+                                      onPressed: () => Navigator.pop(
+                                        dialogContext,
+                                        _EditExternalOrderIntent(order),
+                                      ),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
+                                onTap: () =>
+                                    Navigator.pop(dialogContext, order),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selection == null) return;
+    if (selection is _CreateExternalOrderIntent) {
+      await _createExternalOrder();
+    } else if (selection is _EditExternalOrderIntent) {
+      await _editExternalOrder(selection.order);
+    } else if (selection is ClientOrder) {
+      await _openExternalOrder(selection);
+    }
+  }
+
+  Future<void> _createExternalOrder() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          widget.spanish ? 'Nuevo pedido externo' : 'New external order',
+        ),
+        content: TextField(
+          key: const ValueKey('external-order-name'),
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          decoration: InputDecoration(
+            labelText: widget.spanish ? 'Nombre del pedido' : 'Order name',
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              Navigator.pop(dialogContext, value.trim());
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(widget.spanish ? 'Cancelar' : 'Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(dialogContext, controller.text.trim());
+              }
+            },
+            child: Text(widget.spanish ? 'Continuar' : 'Continue'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || !mounted) return;
+    final menus = await widget.loadMenus(
+      session: widget.session,
+      roomId: widget.room.id,
+    );
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OrderEditorDialog(
+          spanish: widget.spanish,
+          tableLabel: name,
+          menus: menus,
+          existingOrder: null,
+          onSubmit: (description, items) => widget.writeExternalOrder(
+            session: widget.session,
+            roomId: widget.room.id,
+            externalName: name,
+            description: description,
+            items: items,
+          ),
+        ),
+      ),
+    );
+    await _reload();
+  }
+
+  Future<void> _openExternalOrder(ClientOrder order) async {
+    if (order.status == 'waiting') {
+      final editRequested = await showGeneralDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        barrierLabel: 'External order delivery',
+        barrierColor: Colors.black45,
+        transitionDuration: const Duration(milliseconds: 180),
+        transitionBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+        pageBuilder: (_, _, _) => Padding(
+          padding: const EdgeInsets.all(18),
+          child: DeliveryOrderDialog(
+            spanish: widget.spanish,
+            tableLabel: order.externalName!,
+            initialOrder: order,
+            onDeliver: (itemId, unitIndex) => widget.deliverItem(
+              session: widget.session,
+              roomId: widget.room.id,
+              orderId: order.id,
+              itemId: itemId,
+              unitIndex: unitIndex,
+            ),
+            onUndoDelivery: (itemId, unitIndex) => widget.undoDeliveredItem(
+              session: widget.session,
+              roomId: widget.room.id,
+              orderId: order.id,
+              itemId: itemId,
+              unitIndex: unitIndex,
+            ),
+            onEditOrder: () => Navigator.pop(context, true),
+          ),
+        ),
+      );
+      await _reload();
+      if (editRequested == true && mounted) await _editExternalOrder(order);
+      return;
+    }
+    await _billExternalOrder(order);
+  }
+
+  Future<void> _editExternalOrder(ClientOrder order) async {
+    final menus = await widget.loadMenus(
+      session: widget.session,
+      roomId: widget.room.id,
+    );
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OrderEditorDialog(
+          spanish: widget.spanish,
+          tableLabel: order.externalName!,
+          menus: menus,
+          existingOrder: order,
+          onSubmit: (description, items) => widget.writeOrder(
+            session: widget.session,
+            roomId: widget.room.id,
+            tableId: 0,
+            orderId: order.id,
+            description: description,
+            items: items,
+          ),
+        ),
+      ),
+    );
+    await _reload();
+  }
+
+  Future<void> _billExternalOrder(ClientOrder order) async {
+    if (order.items.any((item) => item.deliveredQuantity < item.quantity)) {
+      return;
+    }
+    final menus = await widget.loadMenus(
+      session: widget.session,
+      roomId: widget.room.id,
+    );
+    if (!mounted) return;
+    final productsById = {
+      for (final menu in menus)
+        for (final category in menu.categories)
+          for (final product in category.products) product.id: product,
+    };
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'External order bill',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 180),
+      transitionBuilder: (_, animation, _, child) =>
+          FadeTransition(opacity: animation, child: child),
+      pageBuilder: (_, _, _) => Padding(
+        padding: const EdgeInsets.all(18),
+        child: BillOrderDialog(
+          spanish: widget.spanish,
+          tableLabel: order.externalName!,
+          order: order,
+          productsById: productsById,
+          onBill: () => widget.setClosed(
+            session: widget.session,
+            roomId: widget.room.id,
+            orderId: order.id,
+          ),
+        ),
+      ),
+    );
+    await _reload();
+  }
 
   Future<void> _openDailyOrders() async {
     try {
@@ -679,7 +1052,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         ),
         IconButton(
           key: const ValueKey('toggle-live-table-link'),
-          onPressed: _canInteract && _layout.canToggleGroup
+          onPressed:
+              _canInteract &&
+                  _layout.canToggleGroup &&
+                  !(_layout.canUngroup && _selectedGroupHasActiveOrder)
               ? _toggleSelectedGroup
               : null,
           tooltip: _layout.canUngroup
@@ -703,8 +1079,27 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     ),
   );
 
+  bool get _selectedGroupHasActiveOrder => _layout.selectedTableIds.any(
+    (tableId) =>
+        _layout.groupForTable(tableId) != null &&
+        _orderForTable(tableId) != null,
+  );
+
   Future<void> _toggleSelectedGroup() async {
     if (_layout.canUngroup) {
+      if (_selectedGroupHasActiveOrder) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFB68232),
+            content: Text(
+              widget.spanish
+                  ? 'No puedes desenlazar mesas con un pedido activo.'
+                  : 'Tables with an active order cannot be unlinked.',
+            ),
+          ),
+        );
+        return;
+      }
       _layout.toggleSelectedGroup();
       await _persist();
       return;
@@ -866,6 +1261,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
             tableLabel: tableLabel,
             menus: menus,
             existingOrder: existingOrder,
+            onTransfer: existingOrder == null
+                ? null
+                : () => _chooseTransferTarget(existingOrder),
             onSubmit: (description, items) async {
               await widget.writeOrder(
                 session: widget.session,
@@ -893,6 +1291,99 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<bool> _chooseTransferTarget(ClientOrder order) async {
+    final available = _layout.tables.where((table) {
+      if (table.status != 'available') return false;
+      final group = _layout.groupForTable(table.id);
+      return group == null ||
+          group.tableIds.every((id) {
+            final member = _layout.tables
+                .where((item) => item.id == id)
+                .firstOrNull;
+            return member?.status == 'available';
+          });
+    }).toList();
+    if (available.isEmpty || !mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.spanish
+                ? 'No hay mesas disponibles en este salón.'
+                : 'There are no available tables in this room.',
+          ),
+        ),
+      );
+      return false;
+    }
+    final targetId = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(widget.spanish ? 'Trasladar pedido' : 'Transfer order'),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${widget.room.name} · ${widget.spanish ? 'selecciona una mesa disponible' : 'select an available table'}',
+              ),
+              const SizedBox(height: 14),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 9,
+                    runSpacing: 9,
+                    children: [
+                      for (final table in available)
+                        OutlinedButton(
+                          key: ValueKey('transfer-target-${table.id}'),
+                          onPressed: () =>
+                              Navigator.pop(dialogContext, table.id),
+                          child: Text(table.identifier),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(widget.spanish ? 'Cancelar' : 'Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (targetId == null) return false;
+    try {
+      await widget.transferOrder(
+        session: widget.session,
+        roomId: widget.room.id,
+        orderId: order.id,
+        tableId: targetId,
+      );
+      await _reload();
+      return true;
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFB64A4A),
+            content: Text(
+              widget.spanish
+                  ? 'No se pudo trasladar el pedido.'
+                  : 'The order could not be transferred.',
+            ),
+          ),
+        );
+      }
+      return false;
     }
   }
 

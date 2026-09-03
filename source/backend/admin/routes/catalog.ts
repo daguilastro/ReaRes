@@ -134,7 +134,7 @@ export function createAdminCatalogRoutes(options: Options = {}) {
       ).get(parentCategoryId, menuId) as {
         parentId: number | null; isSpecial: number;
       } | undefined;
-      if (!parent || parent.parentId !== null) {
+      if (!parent) {
         return c.json({ error: 'INVALID_PARENT_CATEGORY' }, 422);
       }
       isSpecial = parent.isSpecial === 1;
@@ -407,10 +407,9 @@ function readMenu(database: DatabaseSync, id: number) {
                 p.name COLLATE NOCASE, p.id`,
     ).all(row.id) as Array<{ id: number }>).map(({ id: productId }) =>
       readProduct(database, productId)),
-    subcategories: row.parentCategoryId === null
-      ? rows.filter((candidate) => candidate.parentCategoryId === row.id)
-        .map((child) => category(child))
-      : [],
+    subcategories: rows.filter(
+      (candidate) => candidate.parentCategoryId === row.id,
+    ).map((child) => category(child)),
   });
   const categories = rows.filter(({ parentCategoryId }) => parentCategoryId === null)
     .map(category);

@@ -307,8 +307,8 @@ export function createDeviceApp(options: Options = {}) {
     }
     const ids = db().prepare(
       `SELECT o.id FROM orders o
-       JOIN hall_tables t ON t.id = o.table_id
-       WHERE t.hall_id = ?
+       LEFT JOIN hall_tables t ON t.id = o.table_id
+       WHERE COALESCE(o.hall_id, t.hall_id) = ?
          AND datetime(o.created_at, 'localtime') >=
              datetime(date('now', 'localtime'), '+1 hour')
          AND datetime(o.created_at, 'localtime') <
@@ -375,6 +375,58 @@ export function createDeviceApp(options: Options = {}) {
     }
   });
 
+  app.post('/rooms/:roomId/external-orders', async (c) => {
+    const session = employeeSession(c);
+    if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
+    const roomId = readRoomId(c.req.param('roomId'));
+    if (!roomId || !employeeHasRoom(db(), session.userId, roomId)) {
+      return c.json({ error: 'ROOM_NOT_ASSIGNED' }, 403);
+    }
+    let raw: unknown;
+    try { raw = await c.req.json(); } catch {
+      return c.json({ error: 'INVALID_JSON' }, 400);
+    }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return c.json({ error: 'INVALID_ORDER' }, 422);
+    }
+    const externalName = typeof (raw as Record<string, unknown>).externalName === 'string'
+      ? ((raw as Record<string, unknown>).externalName as string).trim().slice(0, 80)
+      : '';
+    if (!externalName) return c.json({ error: 'EXTERNAL_NAME_REQUIRED' }, 422);
+    const payload = await readOrderPayload(c, db(), roomId);
+    if (payload instanceof Response) return payload;
+    const now = new Date().toISOString();
+    const database = db();
+    let activity: ActivityEvent | undefined;
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      const result = database.prepare(
+        `INSERT INTO orders
+         (author_id, table_id, table_group_id, hall_id, external_name,
+          description, receiver, status, created_at, updated_at)
+         VALUES (?, NULL, NULL, ?, ?, ?, NULL, 'waiting', ?, ?)`,
+      ).run(session.userId, roomId, externalName, payload.description, now, now);
+      const orderId = Number(result.lastInsertRowid);
+      replaceOrderItems(database, orderId, payload.items);
+      recordOrderModification(database, orderId, null, session.userId,
+        'create', null, JSON.stringify(payload), now);
+      activity = recordActivity(database, {
+        authorId: session.userId,
+        author: session.fullName,
+        roomId,
+        type: 'Pedido',
+        modification: `Creó el pedido externo ${externalName}`,
+      });
+      database.exec('COMMIT');
+      roomRealtimeHub.publishRoomOrdersChanged(roomId);
+      activityHub.publish(activity);
+      return c.json({ order: readOrder(database, orderId) }, 201);
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+      throw error;
+    }
+  });
+
   app.put('/rooms/:roomId/orders/:orderId', async (c) => {
     const session = employeeSession(c);
     if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
@@ -385,12 +437,14 @@ export function createDeviceApp(options: Options = {}) {
     }
     const order = db().prepare(
       `SELECT o.id, o.table_id AS tableId, o.table_group_id AS tableGroupId,
-              o.status
+              o.external_name AS externalName, o.status
        FROM orders o
-       JOIN hall_tables t ON t.id = o.table_id
-       WHERE o.id = ? AND t.hall_id = ? AND o.status != 'closed'`,
+       LEFT JOIN hall_tables t ON t.id = o.table_id
+       WHERE o.id = ? AND COALESCE(o.hall_id, t.hall_id) = ?
+         AND o.status != 'closed'`,
     ).get(orderId, roomId) as {
-      id: number; tableId: number; tableGroupId: number | null; status: string;
+      id: number; tableId: number | null; tableGroupId: number | null;
+      externalName: string | null; status: string;
     } | undefined;
     if (!order) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
@@ -413,18 +467,17 @@ export function createDeviceApp(options: Options = {}) {
         database.prepare('DELETE FROM removed_order_items WHERE order_id = ?')
           .run(orderId);
         database.prepare('DELETE FROM orders WHERE id = ?').run(orderId);
-        updateLogicalTargetStatus(
-          database,
-          order.tableId,
-          order.tableGroupId,
-          'available',
-        );
+        if (order.tableId !== null) {
+          updateLogicalTargetStatus(
+            database, order.tableId, order.tableGroupId, 'available',
+          );
+        }
         activity = recordActivity(database, {
           authorId: session.userId,
           author: session.fullName,
           roomId,
           type: 'Pedido',
-          modification: `Eliminó el pedido pendiente de la mesa ${logicalTableLabel(database, order.tableId, order.tableGroupId)}`,
+          modification: `Eliminó el pedido pendiente de ${logicalTableLabel(database, order.tableId, order.tableGroupId, order.externalName)}`,
         });
         database.exec('COMMIT');
         roomRealtimeHub.publishRoomOrdersChanged(roomId);
@@ -438,12 +491,11 @@ export function createDeviceApp(options: Options = {}) {
         ? 'waiting' : 'eating';
       database.prepare('UPDATE orders SET status = ? WHERE id = ?')
         .run(nextStatus, orderId);
-      updateLogicalTargetStatus(
-        database,
-        order.tableId,
-        order.tableGroupId,
-        nextStatus,
-      );
+      if (order.tableId !== null) {
+        updateLogicalTargetStatus(
+          database, order.tableId, order.tableGroupId, nextStatus,
+        );
+      }
       recordOrderModification(database, orderId, null, session.userId,
         'update', oldValue, JSON.stringify(payload), now);
       activity = recordActivity(database, {
@@ -451,7 +503,7 @@ export function createDeviceApp(options: Options = {}) {
         author: session.fullName,
         roomId,
         type: 'Pedido',
-        modification: `Modificó el pedido de la mesa ${logicalTableLabel(database, order.tableId, order.tableGroupId)}`,
+        modification: `Modificó el pedido de ${logicalTableLabel(database, order.tableId, order.tableGroupId, order.externalName)}`,
       });
       database.exec('COMMIT');
       roomRealtimeHub.publishRoomOrdersChanged(roomId);
@@ -461,6 +513,82 @@ export function createDeviceApp(options: Options = {}) {
       try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
       throw error;
     }
+  });
+
+  app.patch('/rooms/:roomId/orders/:orderId/transfer', async (c) => {
+    const session = employeeSession(c);
+    if (!session) return c.json({ error: 'INVALID_SESSION' }, 401);
+    const roomId = readRoomId(c.req.param('roomId'));
+    const orderId = readRoomId(c.req.param('orderId'));
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return c.json({ error: 'INVALID_JSON' }, 400);
+    }
+    const targetTableId = typeof body === 'object' && body !== null &&
+      !Array.isArray(body) ? readRoomId(String(
+        (body as Record<string, unknown>).tableId ?? '',
+      )) : undefined;
+    if (!roomId || !orderId || !targetTableId ||
+        !employeeHasRoom(db(), session.userId, roomId)) {
+      return c.json({ error: 'INVALID_TRANSFER_TARGET' }, 422);
+    }
+    const order = db().prepare(
+      `SELECT table_id AS tableId, table_group_id AS tableGroupId, status
+       FROM orders WHERE id = ? AND status != 'closed'`,
+    ).get(orderId) as {
+      tableId: number; tableGroupId: number | null; status: string;
+    } | undefined;
+    if (!order || !tableBelongsToRoom(db(), order.tableId, roomId)) {
+      return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
+    }
+    const target = db().prepare(
+      `SELECT status FROM hall_tables WHERE id = ? AND hall_id = ?`,
+    ).get(targetTableId, roomId) as { status: string } | undefined;
+    const targetGroupId = groupForTable(db(), targetTableId);
+    if (!target || target.status !== 'available') {
+      return c.json({ error: 'TABLE_NOT_AVAILABLE' }, 409);
+    }
+    const occupied = db().prepare(
+      `SELECT 1 FROM orders WHERE status != 'closed' AND id != ?
+       AND (table_id = ? OR (? IS NOT NULL AND table_group_id = ?)) LIMIT 1`,
+    ).get(orderId, targetTableId, targetGroupId, targetGroupId);
+    if (occupied) return c.json({ error: 'TABLE_NOT_AVAILABLE' }, 409);
+    const database = db();
+    const oldLabel = logicalTableLabel(
+      database, order.tableId, order.tableGroupId,
+    );
+    const newLabel = logicalTableLabel(database, targetTableId, targetGroupId);
+    const now = new Date().toISOString();
+    let activity: ActivityEvent | undefined;
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      updateLogicalTargetStatus(
+        database, order.tableId, order.tableGroupId, 'available',
+      );
+      database.prepare(
+        `UPDATE orders SET table_id = ?, table_group_id = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(targetTableId, targetGroupId, now, orderId);
+      updateLogicalTargetStatus(
+        database, targetTableId, targetGroupId, order.status,
+      );
+      recordOrderModification(database, orderId, null, session.userId,
+        'transfer', oldLabel, newLabel, now);
+      activity = recordActivity(database, {
+        authorId: session.userId,
+        author: session.fullName,
+        roomId,
+        type: 'Mesa',
+        modification: `Trasladó el pedido de ${oldLabel} a ${newLabel}`,
+      });
+      database.exec('COMMIT');
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+      throw error;
+    }
+    roomRealtimeHub.publishRoomOrdersChanged(roomId);
+    activityHub.publish(activity!);
+    return c.json({ order: readOrder(database, orderId) });
   });
 
   app.patch('/rooms/:roomId/orders/:orderId/status', async (c) => {
@@ -479,11 +607,14 @@ export function createDeviceApp(options: Options = {}) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
     }
     const order = db().prepare(
-      `SELECT o.table_id AS tableId, o.table_group_id AS tableGroupId, o.status FROM orders o
-       JOIN hall_tables t ON t.id = o.table_id
-       WHERE o.id = ? AND t.hall_id = ? AND o.status != 'closed'`,
+      `SELECT o.table_id AS tableId, o.table_group_id AS tableGroupId,
+              o.external_name AS externalName, o.status FROM orders o
+       LEFT JOIN hall_tables t ON t.id = o.table_id
+       WHERE o.id = ? AND COALESCE(o.hall_id, t.hall_id) = ?
+         AND o.status != 'closed'`,
     ).get(orderId, roomId) as {
-      tableId: number; tableGroupId: number | null; status: string;
+      tableId: number | null; tableGroupId: number | null;
+      externalName: string | null; status: string;
     } | undefined;
     if (!order) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
@@ -504,7 +635,11 @@ export function createDeviceApp(options: Options = {}) {
       db().prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
         .run(status, now, orderId);
       const nextTableStatus = status === 'closed' ? 'available' : 'eating';
-      updateLogicalTargetStatus(db(), order.tableId, order.tableGroupId, nextTableStatus);
+      if (order.tableId !== null) {
+        updateLogicalTargetStatus(
+          db(), order.tableId, order.tableGroupId, nextTableStatus,
+        );
+      }
       recordOrderModification(db(), orderId, null, session.userId, 'status',
         order.status, status, now);
       activity = recordActivity(db(), {
@@ -513,8 +648,8 @@ export function createDeviceApp(options: Options = {}) {
         roomId,
         type: 'Mesa',
         modification: status === 'closed'
-          ? `Facturó la mesa ${logicalTableLabel(db(), order.tableId, order.tableGroupId)}`
-          : `Marcó la mesa ${logicalTableLabel(db(), order.tableId, order.tableGroupId)} como comiendo`,
+          ? `Facturó ${logicalTableLabel(db(), order.tableId, order.tableGroupId, order.externalName)}`
+          : `Marcó ${logicalTableLabel(db(), order.tableId, order.tableGroupId, order.externalName)} como comiendo`,
       });
       db().exec('COMMIT');
     } catch (error) {
@@ -542,14 +677,17 @@ export function createDeviceApp(options: Options = {}) {
     }
     const item = db().prepare(
       `SELECT oi.delivered_quantity AS deliveredQuantity, oi.quantity,
-              o.table_id AS tableId, o.table_group_id AS tableGroupId
+              o.table_id AS tableId, o.table_group_id AS tableGroupId,
+              o.external_name AS externalName
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
-       JOIN hall_tables t ON t.id = o.table_id
-       WHERE oi.id = ? AND o.id = ? AND t.hall_id = ? AND o.status != 'closed'`,
+       LEFT JOIN hall_tables t ON t.id = o.table_id
+       WHERE oi.id = ? AND o.id = ?
+         AND COALESCE(o.hall_id, t.hall_id) = ? AND o.status != 'closed'`,
     ).get(itemId, orderId, roomId) as {
       deliveredQuantity: number; quantity: number;
-      tableId: number; tableGroupId: number | null;
+      tableId: number | null; tableGroupId: number | null;
+      externalName: string | null;
     } | undefined;
     if (!item) return c.json({ error: 'ORDER_ITEM_NOT_FOUND' }, 404);
     if (unitIndex >= item.quantity) {
@@ -588,12 +726,11 @@ export function createDeviceApp(options: Options = {}) {
       database.prepare(
         'UPDATE orders SET status = ?, updated_at = ? WHERE id = ?',
       ).run(nextStatus, now, orderId);
-      updateLogicalTargetStatus(
-        database,
-        item.tableId,
-        item.tableGroupId,
-        nextStatus,
-      );
+      if (item.tableId !== null) {
+        updateLogicalTargetStatus(
+          database, item.tableId, item.tableGroupId, nextStatus,
+        );
+      }
       recordOrderModification(
         database,
         orderId,
@@ -610,8 +747,8 @@ export function createDeviceApp(options: Options = {}) {
         roomId,
         type: 'Pedido',
         modification: nextStatus === 'eating'
-          ? `Entregó el último producto de la mesa ${logicalTableLabel(database, item.tableId, item.tableGroupId)}`
-          : `Entregó un producto de la mesa ${logicalTableLabel(database, item.tableId, item.tableGroupId)}`,
+          ? `Entregó el último producto de ${logicalTableLabel(database, item.tableId, item.tableGroupId, item.externalName)}`
+          : `Entregó un producto de ${logicalTableLabel(database, item.tableId, item.tableGroupId, item.externalName)}`,
       });
       database.exec('COMMIT');
     } catch (error) {
@@ -642,14 +779,17 @@ export function createDeviceApp(options: Options = {}) {
       }
       const item = db().prepare(
         `SELECT oi.quantity, oi.delivered_quantity AS deliveredQuantity,
-                o.table_id AS tableId, o.table_group_id AS tableGroupId
+                o.table_id AS tableId, o.table_group_id AS tableGroupId,
+                o.external_name AS externalName
          FROM order_items oi
          JOIN orders o ON o.id = oi.order_id
-         JOIN hall_tables t ON t.id = o.table_id
-         WHERE oi.id = ? AND o.id = ? AND t.hall_id = ? AND o.status != 'closed'`,
+         LEFT JOIN hall_tables t ON t.id = o.table_id
+         WHERE oi.id = ? AND o.id = ?
+           AND COALESCE(o.hall_id, t.hall_id) = ? AND o.status != 'closed'`,
       ).get(itemId, orderId, roomId) as {
         quantity: number; deliveredQuantity: number;
-        tableId: number; tableGroupId: number | null;
+        tableId: number | null; tableGroupId: number | null;
+        externalName: string | null;
       } | undefined;
       if (!item || unitIndex >= item.quantity) {
         return c.json({ error: 'ORDER_ITEM_NOT_FOUND' }, 404);
@@ -681,12 +821,11 @@ export function createDeviceApp(options: Options = {}) {
         database.prepare(
           `UPDATE orders SET status = 'waiting', updated_at = ? WHERE id = ?`,
         ).run(now, orderId);
-        updateLogicalTargetStatus(
-          database,
-          item.tableId,
-          item.tableGroupId,
-          'waiting',
-        );
+        if (item.tableId !== null) {
+          updateLogicalTargetStatus(
+            database, item.tableId, item.tableGroupId, 'waiting',
+          );
+        }
         recordOrderModification(
           database,
           orderId,
@@ -702,7 +841,7 @@ export function createDeviceApp(options: Options = {}) {
           author: session.fullName,
           roomId,
           type: 'Pedido',
-          modification: `Deshizo una entrega de la mesa ${logicalTableLabel(database, item.tableId, item.tableGroupId)}`,
+          modification: `Deshizo una entrega de ${logicalTableLabel(database, item.tableId, item.tableGroupId, item.externalName)}`,
         });
         database.exec('COMMIT');
       } catch (error) {
@@ -1044,15 +1183,23 @@ function replaceOrderItems(database: DatabaseSync, orderId: number, items: Order
     );
   }
   const storedItems = database.prepare(
-    `SELECT oi.id, oi.product_id AS productId, oi.quantity,
+    `WITH RECURSIVE category_paths(id, path) AS (
+       SELECT id, name FROM menu_categories WHERE parent_category_id IS NULL
+       UNION ALL
+       SELECT child.id, category_paths.path || ' › ' || child.name
+       FROM menu_categories child
+       JOIN category_paths ON child.parent_category_id = category_paths.id
+     )
+     SELECT oi.id, oi.product_id AS productId, oi.quantity,
             oi.delivered_quantity AS deliveredQuantity, oi.specifications,
             parent.product_id AS parentProductId, p.name,
-            category.name AS categoryName,
+            category_paths.path AS categoryName,
             p.description AS productDescription, p.value,
             parent_product.name AS parentProductName
      FROM order_items oi
      JOIN products p ON p.id = oi.product_id
      JOIN menu_categories category ON category.id = p.category_id
+     JOIN category_paths ON category_paths.id = category.id
      LEFT JOIN order_items parent ON parent.id = oi.parent_order_item_id
      LEFT JOIN products parent_product ON parent_product.id = parent.product_id
      WHERE oi.order_id = ? ORDER BY oi.id`,
@@ -1189,16 +1336,19 @@ function recordOrderModification(database: DatabaseSync, orderId: number,
 
 function readRoomOrders(database: DatabaseSync, roomId: number) {
   return (database.prepare(
-    `SELECT o.id FROM orders o JOIN hall_tables t ON t.id = o.table_id
-     WHERE t.hall_id = ? AND o.status != 'closed' ORDER BY o.created_at`,
+    `SELECT o.id FROM orders o LEFT JOIN hall_tables t ON t.id = o.table_id
+     WHERE COALESCE(o.hall_id, t.hall_id) = ? AND o.status != 'closed'
+     ORDER BY o.created_at`,
   ).all(roomId) as Array<{ id: number }>).map(({ id }) => readOrder(database, id));
 }
 
 function logicalTableLabel(
   database: DatabaseSync,
-  tableId: number,
+  tableId: number | null,
   tableGroupId: number | null,
+  externalName: string | null = null,
 ) {
+  if (externalName) return externalName;
   if (tableGroupId !== null) {
     const group = database.prepare(
       'SELECT visible_identifier AS label FROM table_groups WHERE id = ?',
@@ -1208,29 +1358,38 @@ function logicalTableLabel(
   const table = database.prepare(
     'SELECT identifier AS label FROM hall_tables WHERE id = ?',
   ).get(tableId) as { label: string } | undefined;
-  return table?.label ?? String(tableId);
+  return table?.label ?? String(tableId ?? 'Pedido externo');
 }
 
 function readOrder(database: DatabaseSync, orderId: number) {
   const order = database.prepare(
     `SELECT o.id, o.table_id AS tableId, o.table_group_id AS tableGroupId,
+            o.external_name AS externalName,
             o.author_id AS authorId, o.description,
             o.status, o.created_at AS createdAt, o.updated_at AS updatedAt,
-            COALESCE(g.visible_identifier, t.identifier) AS tableLabel
+            COALESCE(o.external_name, g.visible_identifier, t.identifier) AS tableLabel
      FROM orders o
-     JOIN hall_tables t ON t.id = o.table_id
+     LEFT JOIN hall_tables t ON t.id = o.table_id
      LEFT JOIN table_groups g ON g.id = o.table_group_id
      WHERE o.id = ?`,
   ).get(orderId);
   const items = database.prepare(
-    `SELECT oi.id, oi.product_id AS productId, p.name,
-            category.name AS categoryName,
+    `WITH RECURSIVE category_paths(id, path) AS (
+       SELECT id, name FROM menu_categories WHERE parent_category_id IS NULL
+       UNION ALL
+       SELECT child.id, category_paths.path || ' › ' || child.name
+       FROM menu_categories child
+       JOIN category_paths ON child.parent_category_id = category_paths.id
+     )
+     SELECT oi.id, oi.product_id AS productId, p.name,
+            category_paths.path AS categoryName,
             p.description AS productDescription, p.value AS unitValue, oi.quantity,
             oi.delivered_quantity AS deliveredQuantity,
             oi.specifications, oi.parent_order_item_id AS parentOrderItemId,
             oi.status
      FROM order_items oi JOIN products p ON p.id = oi.product_id
      JOIN menu_categories category ON category.id = p.category_id
+     JOIN category_paths ON category_paths.id = category.id
      WHERE oi.order_id = ? ORDER BY oi.id`,
   ).all(orderId) as Array<Record<string, unknown> & { id: number; productId: number }>;
   const removedItems = database.prepare(

@@ -110,7 +110,6 @@ class _MenusPageState extends State<MenusPage> {
   List<RoomSummary> _rooms = [];
   int? _menuId;
   int? _categoryId;
-  int? _subcategoryId;
   final Map<int, List<CatalogProduct>> _productOrderOverrides = {};
   final Set<int> _savingProductOrder = {};
   final Map<String, List<MenuCategory>> _categoryOrderOverrides = {};
@@ -121,10 +120,17 @@ class _MenusPageState extends State<MenusPage> {
   RestaurantMenu? get _menu =>
       _catalog.menus.where((item) => item.id == _menuId).firstOrNull;
   MenuCategory? get _category =>
-      _menu?.categories.where((item) => item.id == _categoryId).firstOrNull;
-  MenuCategory? get _subcategory => _category?.subcategories
-      .where((item) => item.id == _subcategoryId)
-      .firstOrNull;
+      _findCategory(_menu?.categories ?? const [], _categoryId);
+
+  MenuCategory? _findCategory(List<MenuCategory> categories, int? id) {
+    if (id == null) return null;
+    for (final category in categories) {
+      if (category.id == id) return category;
+      final nested = _findCategory(category.subcategories, id);
+      if (nested != null) return nested;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -159,7 +165,6 @@ class _MenusPageState extends State<MenusPage> {
   void _resetNavigation() {
     _menuId = null;
     _categoryId = null;
-    _subcategoryId = null;
   }
 
   @override
@@ -173,9 +178,6 @@ class _MenusPageState extends State<MenusPage> {
           label: Text(_error!),
         ),
       );
-    }
-    if (_subcategory != null) {
-      return _categoryDetail(_subcategory!, subcategory: true);
     }
     if (_category != null) return _categoryDetail(_category!);
     if (_menu != null) return _menuDetail(_menu!);
@@ -276,7 +278,7 @@ class _MenusPageState extends State<MenusPage> {
     );
   }
 
-  Widget _categoryDetail(MenuCategory category, {bool subcategory = false}) {
+  Widget _categoryDetail(MenuCategory category) {
     final menu = _menu!;
     final products = _productOrderOverrides[category.id] ?? category.products;
     final subcategories = _orderedCategories(
@@ -289,18 +291,14 @@ class _MenusPageState extends State<MenusPage> {
       children: [
         _pageHeader(
           back: () => setState(() {
-            if (subcategory) {
-              _subcategoryId = null;
-            } else {
-              _categoryId = null;
-            }
+            _categoryId = category.parentCategoryId;
           }),
           title: category.name,
           subtitle: category.isSpecial
               ? (_es
                     ? 'Categoría especial: combos, adiciones u otros productos asociados.'
                     : 'Special category: combos, additions, or associated products.')
-              : (subcategory
+              : (category.parentCategoryId != null
                     ? (_es ? 'Subcategoría' : 'Subcategory')
                     : menu.name),
           actions: [
@@ -310,13 +308,12 @@ class _MenusPageState extends State<MenusPage> {
               icon: const Icon(Icons.edit_outlined),
               label: Text(_es ? 'Cambiar nombre' : 'Rename'),
             ),
-            if (!subcategory)
-              OutlinedButton.icon(
-                key: const ValueKey('add-subcategory'),
-                onPressed: () => _createCategory(menu, parent: category),
-                icon: const Icon(Icons.account_tree_outlined),
-                label: Text(_es ? 'Añadir subcategoría' : 'Add subcategory'),
-              ),
+            OutlinedButton.icon(
+              key: const ValueKey('add-subcategory'),
+              onPressed: () => _createCategory(menu, parent: category),
+              icon: const Icon(Icons.account_tree_outlined),
+              label: Text(_es ? 'Añadir subcategoría' : 'Add subcategory'),
+            ),
             FilledButton.icon(
               key: const ValueKey('add-product'),
               onPressed: () => _createProduct(menu, category),
@@ -326,7 +323,7 @@ class _MenusPageState extends State<MenusPage> {
           ],
         ),
         const SizedBox(height: 24),
-        if (!subcategory && subcategories.isNotEmpty) ...[
+        if (subcategories.isNotEmpty) ...[
           Text(
             _es ? 'Subcategorías' : 'Subcategories',
             style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
@@ -474,8 +471,7 @@ class _MenusPageState extends State<MenusPage> {
               badge: category.isSpecial ? (_es ? 'Especial' : 'Special') : null,
               lines: [
                 '${category.products.length} ${_es ? 'productos' : 'products'}',
-                if (parentCategoryId == null)
-                  '${category.subcategories.length} ${_es ? 'subcategorías' : 'subcategories'}',
+                '${category.subcategories.length} ${_es ? 'subcategorías' : 'subcategories'}',
               ],
               trailing: ReorderableDragStartListener(
                 key: ValueKey('category-drag-handle-${category.id}'),
@@ -493,11 +489,7 @@ class _MenusPageState extends State<MenusPage> {
                 ),
               ),
               onTap: () => setState(() {
-                if (parentCategoryId == null) {
-                  _categoryId = category.id;
-                } else {
-                  _subcategoryId = category.id;
-                }
+                _categoryId = category.id;
               }),
             ),
           ),
