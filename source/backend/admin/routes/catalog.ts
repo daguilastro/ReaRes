@@ -34,6 +34,36 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     ingredientCategories: readIngredientCategories(db()),
   }));
 
+  routes.put('/rooms/:roomId/menus', async (c) => {
+    const roomId = positiveId(c.req.param('roomId'));
+    if (!roomId || !exists(db(), 'hall', roomId)) {
+      return c.json({ error: 'ROOM_NOT_FOUND' }, 404);
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) return body;
+    const assignments = roomMenuAssignments(body.assignments);
+    if (!assignments || assignments.filter(({ isPrimary }) => isPrimary).length > 1 ||
+        !allExist(db(), 'menu', assignments.map(({ menuId }) => menuId))) {
+      return c.json({ error: 'INVALID_MENU_ASSIGNMENTS' }, 422);
+    }
+    const database = db();
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      database.prepare('DELETE FROM menu_halls WHERE hall_id = ?').run(roomId);
+      const insert = database.prepare(
+        'INSERT INTO menu_halls (menu_id, hall_id, is_primary) VALUES (?, ?, ?)',
+      );
+      for (const assignment of assignments) {
+        insert.run(assignment.menuId, roomId, assignment.isPrimary ? 1 : 0);
+      }
+      database.exec('COMMIT');
+      return c.json({ assignments });
+    } catch (error) {
+      try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
+      throw error;
+    }
+  });
+
   routes.post('/ingredient-categories', async (c) => {
     const body = await readJson(c);
     if (body instanceof Response) return body;
@@ -495,6 +525,27 @@ function hallAssignments(value: unknown): Array<{
     }
     seen.add(item.hallId as number);
     result.push({ hallId: item.hallId as number, isPrimary: item.isPrimary });
+  }
+  return result;
+}
+
+function roomMenuAssignments(value: unknown): Array<{
+  menuId: number; isPrimary: boolean;
+}> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result: Array<{ menuId: number; isPrimary: boolean }> = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return undefined;
+    }
+    const item = raw as Record<string, unknown>;
+    if (!Number.isSafeInteger(item.menuId) || (item.menuId as number) < 1 ||
+        typeof item.isPrimary !== 'boolean' || seen.has(item.menuId as number)) {
+      return undefined;
+    }
+    seen.add(item.menuId as number);
+    result.push({ menuId: item.menuId as number, isPrimary: item.isPrimary });
   }
   return result;
 }

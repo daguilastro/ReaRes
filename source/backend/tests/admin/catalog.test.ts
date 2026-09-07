@@ -43,6 +43,14 @@ test('an admin builds menus with categories, products and room restrictions', as
   });
   assert.equal(menuResponse.status, 201);
   const menuId = (await menuResponse.json() as { menu: { id: number } }).menu.id;
+  const secondaryMenuResponse = await app.request('/menus', {
+    method: 'POST', headers,
+    body: JSON.stringify({ name: 'Extras', hallAssignments: [] }),
+  });
+  assert.equal(secondaryMenuResponse.status, 201);
+  const secondaryMenuId = (await secondaryMenuResponse.json() as {
+    menu: { id: number };
+  }).menu.id;
   const duplicatePrimary = await app.request('/menus', {
     method: 'POST', headers,
     body: JSON.stringify({ name: 'Lunch', hallAssignments: [
@@ -50,6 +58,32 @@ test('an admin builds menus with categories, products and room restrictions', as
     ] }),
   });
   assert.equal(duplicatePrimary.status, 409);
+
+  const invalidRoomMenus = await app.request('/rooms/1/menus', {
+    method: 'PUT', headers,
+    body: JSON.stringify({ assignments: [
+      { menuId, isPrimary: true },
+      { menuId: secondaryMenuId, isPrimary: true },
+    ] }),
+  });
+  assert.equal(invalidRoomMenus.status, 422);
+
+  const roomMenusResponse = await app.request('/rooms/1/menus', {
+    method: 'PUT', headers,
+    body: JSON.stringify({ assignments: [
+      { menuId, isPrimary: true },
+      { menuId: secondaryMenuId, isPrimary: false },
+    ] }),
+  });
+  assert.equal(roomMenusResponse.status, 200);
+  const savedRoomMenus = database.prepare(
+    `SELECT menu_id AS menuId, is_primary AS isPrimary
+     FROM menu_halls WHERE hall_id = 1 ORDER BY is_primary DESC, menu_id`,
+  ).all() as Array<{ menuId: number; isPrimary: number }>;
+  assert.deepEqual(savedRoomMenus.map((item) => ({ ...item })), [
+    { menuId, isPrimary: 1 },
+    { menuId: secondaryMenuId, isPrimary: 0 },
+  ]);
 
   const withoutCategory = await app.request(`/menus/${menuId}/products`, {
     method: 'POST', headers,

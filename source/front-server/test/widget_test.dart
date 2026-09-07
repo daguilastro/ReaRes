@@ -392,6 +392,7 @@ void main() {
   testWidgets('rooms overview shows statistics before opening an editor', (
     tester,
   ) async {
+    List<RoomMenuAssignment>? savedAssignments;
     const room = RoomSummary(
       id: 8,
       name: 'Terraza',
@@ -408,6 +409,36 @@ void main() {
             token: 'admin-token',
             loadRooms: (_) async => const [room],
             createNewRoom: ({required token, required name}) async => room,
+            loadMenus: (_) async => const CatalogSnapshot(
+              ingredients: [],
+              menus: [
+                RestaurantMenu(
+                  id: 4,
+                  name: 'Dinner',
+                  hallAssignments: [
+                    MenuHallAssignment(hallId: 8, isPrimary: true),
+                  ],
+                  categories: [],
+                ),
+                RestaurantMenu(
+                  id: 5,
+                  name: 'Extras',
+                  hallAssignments: [
+                    MenuHallAssignment(hallId: 8, isPrimary: false),
+                  ],
+                  categories: [],
+                ),
+              ],
+            ),
+            saveMenus:
+                ({
+                  required token,
+                  required roomId,
+                  required assignments,
+                }) async {
+                  expect(roomId, 8);
+                  savedAssignments = assignments;
+                },
             editorBuilder: (selected, onBack) => Center(
               key: const ValueKey('fake-room-editor'),
               child: Text(selected.name),
@@ -423,6 +454,22 @@ void main() {
     expect(find.text('31'), findsOneWidget);
     expect(find.text(r'$82 050'), findsOneWidget);
     expect(find.text(r'$2 647'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('room-menus-8')));
+    await tester.pumpAndSettle();
+    expect(find.text('Terraza menus'), findsOneWidget);
+    expect(find.text('Dinner'), findsOneWidget);
+    expect(find.text('Extras'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('save-room-menus')));
+    await tester.pumpAndSettle();
+    expect(savedAssignments, hasLength(2));
+    expect(
+      savedAssignments!.singleWhere((item) => item.menuId == 4).isPrimary,
+      isTrue,
+    );
+    expect(
+      savedAssignments!.singleWhere((item) => item.menuId == 5).isPrimary,
+      isFalse,
+    );
     await tester.tap(find.byKey(const ValueKey('room-card-8')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('fake-room-editor')), findsOneWidget);

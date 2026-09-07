@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../../../services/admin_api.dart';
 import '../../../utils/money.dart';
+import '../menus/catalog_models.dart';
 import 'hall_layout_page.dart';
 import 'room_layout_models.dart';
 
 typedef LoadRooms = Future<List<RoomSummary>> Function(String token);
 typedef CreateRoom =
     Future<RoomSummary> Function({required String token, required String name});
+typedef LoadRoomMenus = Future<CatalogSnapshot> Function(String token);
+typedef SaveRoomMenus =
+    Future<void> Function({
+      required String token,
+      required int roomId,
+      required List<RoomMenuAssignment> assignments,
+    });
 typedef RoomEditorBuilder =
     Widget Function(RoomSummary room, VoidCallback onBack);
 
@@ -18,6 +26,8 @@ class HallsPage extends StatefulWidget {
     required this.token,
     this.loadRooms = getRooms,
     this.createNewRoom = createRoom,
+    this.loadMenus = getCatalog,
+    this.saveMenus = updateRoomMenus,
     this.editorBuilder,
   });
 
@@ -25,6 +35,8 @@ class HallsPage extends StatefulWidget {
   final String token;
   final LoadRooms loadRooms;
   final CreateRoom createNewRoom;
+  final LoadRoomMenus loadMenus;
+  final SaveRoomMenus saveMenus;
   final RoomEditorBuilder? editorBuilder;
 
   @override
@@ -137,6 +149,7 @@ class _HallsPageState extends State<HallsPage> {
                         spanish: _es,
                         onTap: () =>
                             setState(() => _selectedRoom = _rooms[index]),
+                        onManageMenus: () => _manageRoomMenus(_rooms[index]),
                       ),
                       childCount: _rooms.length,
                     ),
@@ -248,6 +261,56 @@ class _HallsPageState extends State<HallsPage> {
       }
     }
   }
+
+  Future<void> _manageRoomMenus(RoomSummary room) async {
+    try {
+      final catalog = await widget.loadMenus(widget.token);
+      if (!mounted) return;
+      if (catalog.menus.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _es
+                  ? 'Primero debes crear al menos un menú.'
+                  : 'Create at least one menu first.',
+            ),
+          ),
+        );
+        return;
+      }
+      final assignments = await showDialog<List<RoomMenuAssignment>>(
+        context: context,
+        builder: (_) =>
+            _RoomMenusDialog(spanish: _es, room: room, menus: catalog.menus),
+      );
+      if (assignments == null || !mounted) return;
+      await widget.saveMenus(
+        token: widget.token,
+        roomId: room.id,
+        assignments: assignments,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _es ? 'Menús del salón actualizados.' : 'Room menus updated.',
+          ),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFB64A4A),
+          content: Text(
+            _es
+                ? 'No se pudieron actualizar los menús del salón.'
+                : 'The room menus could not be updated.',
+          ),
+        ),
+      );
+    }
+  }
 }
 
 class _RoomCard extends StatelessWidget {
@@ -255,10 +318,12 @@ class _RoomCard extends StatelessWidget {
     required this.room,
     required this.spanish,
     required this.onTap,
+    required this.onManageMenus,
   });
   final RoomSummary room;
   final bool spanish;
   final VoidCallback onTap;
+  final VoidCallback onManageMenus;
 
   String _money(double value) => formatPesos(value);
 
@@ -297,9 +362,18 @@ class _RoomCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                IconButton(
+                  key: ValueKey('room-menus-${room.id}'),
+                  tooltip: spanish ? 'Asignar menús' : 'Assign menus',
+                  onPressed: onManageMenus,
+                  icon: const Icon(
+                    Icons.restaurant_menu_rounded,
+                    color: Color(0xFF71859B),
+                  ),
+                ),
                 const Icon(
                   Icons.arrow_forward_ios_rounded,
-                  size: 16,
+                  size: 14,
                   color: Color(0xFF9DA2A7),
                 ),
               ],
@@ -342,6 +416,127 @@ class _RoomCard extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+enum _RoomMenuMode { none, primary, secondary }
+
+class _RoomMenusDialog extends StatefulWidget {
+  const _RoomMenusDialog({
+    required this.spanish,
+    required this.room,
+    required this.menus,
+  });
+
+  final bool spanish;
+  final RoomSummary room;
+  final List<RestaurantMenu> menus;
+
+  @override
+  State<_RoomMenusDialog> createState() => _RoomMenusDialogState();
+}
+
+class _RoomMenusDialogState extends State<_RoomMenusDialog> {
+  late final Map<int, _RoomMenuMode> _modes = {
+    for (final menu in widget.menus)
+      menu.id: menu.primaryHallIds.contains(widget.room.id)
+          ? _RoomMenuMode.primary
+          : menu.secondaryHallIds.contains(widget.room.id)
+          ? _RoomMenuMode.secondary
+          : _RoomMenuMode.none,
+  };
+
+  void _setMode(int menuId, _RoomMenuMode mode) {
+    setState(() {
+      if (mode == _RoomMenuMode.primary) {
+        for (final entry in _modes.entries) {
+          if (entry.value == _RoomMenuMode.primary && entry.key != menuId) {
+            _modes[entry.key] = _RoomMenuMode.secondary;
+          }
+        }
+      }
+      _modes[menuId] = mode;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(
+      widget.spanish
+          ? 'Menús de ${widget.room.name}'
+          : '${widget.room.name} menus',
+    ),
+    content: SizedBox(
+      width: 520,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.spanish
+                  ? 'Selecciona un menú principal y los menús secundarios disponibles en este salón.'
+                  : 'Choose one primary menu and the secondary menus available in this room.',
+              style: const TextStyle(color: Color(0xFF70757A)),
+            ),
+            const SizedBox(height: 16),
+            for (final menu in widget.menus)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DropdownButtonFormField<_RoomMenuMode>(
+                  key: ValueKey('room-menu-${menu.id}'),
+                  initialValue: _modes[menu.id],
+                  decoration: InputDecoration(
+                    labelText: menu.name,
+                    prefixIcon: const Icon(Icons.menu_book_outlined),
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: _RoomMenuMode.none,
+                      child: Text(
+                        widget.spanish ? 'No asignado' : 'Not assigned',
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: _RoomMenuMode.primary,
+                      child: Text(
+                        widget.spanish ? 'Menú principal' : 'Primary menu',
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: _RoomMenuMode.secondary,
+                      child: Text(
+                        widget.spanish ? 'Menú secundario' : 'Secondary menu',
+                      ),
+                    ),
+                  ],
+                  onChanged: (mode) {
+                    if (mode != null) _setMode(menu.id, mode);
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(widget.spanish ? 'Cancelar' : 'Cancel'),
+      ),
+      FilledButton.icon(
+        key: const ValueKey('save-room-menus'),
+        onPressed: () => Navigator.pop(context, [
+          for (final menu in widget.menus)
+            if (_modes[menu.id] != _RoomMenuMode.none)
+              RoomMenuAssignment(
+                menuId: menu.id,
+                isPrimary: _modes[menu.id] == _RoomMenuMode.primary,
+              ),
+        ]),
+        icon: const Icon(Icons.save_outlined),
+        label: Text(widget.spanish ? 'Guardar' : 'Save'),
+      ),
+    ],
   );
 }
 

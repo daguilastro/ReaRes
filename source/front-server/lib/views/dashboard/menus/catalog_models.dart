@@ -121,6 +121,13 @@ class MenuHallAssignment {
   final bool isPrimary;
 }
 
+class RoomMenuAssignment {
+  const RoomMenuAssignment({required this.menuId, required this.isPrimary});
+
+  final int menuId;
+  final bool isPrimary;
+}
+
 class RestaurantMenu {
   const RestaurantMenu({
     required this.id,

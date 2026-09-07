@@ -333,6 +333,24 @@ Future<RestaurantMenu> createMenu({
   return RestaurantMenu.fromJson(body['menu'] as Map<String, dynamic>);
 }
 
+Future<void> updateRoomMenus({
+  required String token,
+  required int roomId,
+  required List<RoomMenuAssignment> assignments,
+}) async {
+  await _catalogRequest(
+    token: token,
+    method: 'PUT',
+    path: '/api/admin/rooms/$roomId/menus',
+    payload: {
+      'assignments': [
+        for (final assignment in assignments)
+          {'menuId': assignment.menuId, 'isPrimary': assignment.isPrimary},
+      ],
+    },
+  );
+}
+
 Future<MenuCategory> createMenuCategory({
   required String token,
   required int menuId,
