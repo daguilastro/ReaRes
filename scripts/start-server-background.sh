@@ -7,6 +7,7 @@ PROJECT_DIRECTORY=$(dirname -- "$SCRIPT_DIRECTORY")
 STATE_DIRECTORY=${XDG_STATE_HOME:-"$HOME/.local/state"}/restaurante-app
 PID_FILE="$STATE_DIRECTORY/server.pid"
 LOG_FILE="$STATE_DIRECTORY/server.log"
+ADMIN_PORT_FILE=${RESTAURANTE_ADMIN_PORT_FILE:-"${EXTERNAL_STORAGE:-/storage/emulated/0}/Download/restaurante-app/admin-port.txt"}
 
 mkdir -p "$STATE_DIRECTORY"
 
@@ -50,6 +51,9 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 rm -f "$PID_FILE"
+# Un cierre abrupto puede dejar información de runtime obsoleta. Este archivo
+# solo publica endpoints efímeros; la base de datos nunca se toca aquí.
+rm -f "$ADMIN_PORT_FILE"
 
 cd "$PROJECT_DIRECTORY"
 
@@ -62,13 +66,31 @@ nohup ./node_modules/.bin/tsx source/backend/server.ts \
 SERVER_PID=$!
 echo "$SERVER_PID" >"$PID_FILE"
 
-sleep 1
-if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+ATTEMPTS=0
+while [ "$ATTEMPTS" -lt 75 ]; do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    rm -f "$PID_FILE"
+    echo "El servidor no pudo iniciarse. Últimas líneas del log:" >&2
+    tail -n 40 "$LOG_FILE" >&2
+    exit 1
+  fi
+  if [ -s "$ADMIN_PORT_FILE" ]; then
+    break
+  fi
+  sleep 0.2
+  ATTEMPTS=$((ATTEMPTS + 1))
+done
+
+if [ ! -s "$ADMIN_PORT_FILE" ]; then
+  kill -TERM "$SERVER_PID" 2>/dev/null || true
   rm -f "$PID_FILE"
-  echo "El servidor no pudo iniciarse. Últimas líneas del log:" >&2
-  tail -n 30 "$LOG_FILE" >&2
+  echo "Node siguió vivo, pero no publicó sus puertos después de 15 segundos." >&2
+  echo "Comprueba que Termux tenga acceso al almacenamiento compartido." >&2
+  echo "Últimas líneas del log:" >&2
+  tail -n 40 "$LOG_FILE" >&2
   exit 1
 fi
 
 echo "Servidor iniciado en segundo plano (PID $SERVER_PID)."
 echo "Log: $LOG_FILE"
+echo "Endpoints: $ADMIN_PORT_FILE"

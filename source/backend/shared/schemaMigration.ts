@@ -67,6 +67,8 @@ function migrateSpecialCategoryHierarchy(database: DatabaseSync): void {
     DROP TRIGGER IF EXISTS menu_categories_special_root_update;
     DROP TRIGGER IF EXISTS order_items_special_parent_insert;
     DROP TRIGGER IF EXISTS order_items_special_parent_update;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_update;
     CREATE TABLE menu_categories_hierarchy_migration (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       menu_id INTEGER NOT NULL,
@@ -473,6 +475,10 @@ function removeCategoryNameUniqueness(database: DatabaseSync): void {
     BEGIN IMMEDIATE;
     DROP TRIGGER IF EXISTS menu_categories_special_root_insert;
     DROP TRIGGER IF EXISTS menu_categories_special_root_update;
+    DROP TRIGGER IF EXISTS order_items_special_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_parent_update;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_insert;
+    DROP TRIGGER IF EXISTS order_items_special_requires_parent_update;
     CREATE TABLE menu_categories_without_name_uniqueness (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       menu_id INTEGER NOT NULL,
@@ -498,6 +504,7 @@ function removeCategoryNameUniqueness(database: DatabaseSync): void {
   if (violations.length > 0) {
     throw new Error('La migración de categorías dejó claves foráneas inválidas.');
   }
+  ensureSpecialOrderItemConstraints(database);
 }
 
 function removeProductNameUniqueness(database: DatabaseSync): void {

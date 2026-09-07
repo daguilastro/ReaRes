@@ -65,3 +65,40 @@ test('migrates legacy special roots and permits inherited special children', () 
   assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), []);
   database.close();
 });
+
+test('removes the category name constraint while order triggers exist', () => {
+  const database = new DatabaseSync(':memory:');
+  const currentSchema = readFileSync(
+    join(process.cwd(), 'db', 'schheme.sql'),
+    'utf8',
+  );
+  const constrainedSchema = currentSchema.replace(
+    '\t"position" INTEGER NOT NULL DEFAULT 0 CHECK ("position" >= 0),\n' +
+      '\tFOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,',
+    '\t"position" INTEGER NOT NULL DEFAULT 0 CHECK ("position" >= 0),\n' +
+      '\tUNIQUE ("menu_id", "name"),\n' +
+      '\tFOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,',
+  );
+  database.exec(constrainedSchema);
+  database.prepare('INSERT INTO menu (name) VALUES (?)').run('Main');
+  database.prepare(
+    `INSERT INTO menu_categories (menu_id, name) VALUES (1, 'Meals')`,
+  ).run();
+
+  ensureCatalogSchema(database);
+  database.prepare(
+    `INSERT INTO menu_categories (menu_id, name) VALUES (1, 'Meals')`,
+  ).run();
+
+  assert.equal((database.prepare(
+    `SELECT COUNT(*) AS count FROM menu_categories WHERE name = 'Meals'`,
+  ).get() as { count: number }).count, 2);
+  assert.equal((database.prepare(
+    `SELECT COUNT(*) AS count FROM sqlite_master
+     WHERE type = 'trigger'
+       AND name IN ('order_items_special_parent_insert',
+                    'order_items_special_parent_update')`,
+  ).get() as { count: number }).count, 2);
+  assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), []);
+  database.close();
+});
