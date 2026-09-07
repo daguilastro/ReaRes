@@ -565,14 +565,24 @@ void main() {
     );
     await tester.pump();
     expect(find.byKey(const ValueKey('order-product-20')), findsOneWidget);
-    expect(find.text('Principal › Platos · #10'), findsOneWidget);
+    expect(find.text('Platos'), findsOneWidget);
+    expect(find.textContaining('Principal ›'), findsNothing);
+    expect(find.textContaining('#10'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('order-product-20')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('special-category-11')), findsOneWidget);
     await tester.tap(find.text('Cancelar'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('clear-order-product-search')));
+    await tester.binding.handlePopRoute();
     await tester.pump();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('order-product-search')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    expect(find.byKey(const ValueKey('close-order-editor')), findsOneWidget);
 
     expect(find.byKey(const ValueKey('order-category-11')), findsOneWidget);
     expect(

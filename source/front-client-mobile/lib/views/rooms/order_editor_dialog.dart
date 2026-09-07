@@ -80,7 +80,11 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope<void>(
-    canPop: !_selectionExpanded && _categoryId == null && !_saving,
+    canPop:
+        _searchQuery.isEmpty &&
+        !_selectionExpanded &&
+        _categoryId == null &&
+        !_saving,
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop && !_saving) _goBack();
     },
@@ -118,6 +122,11 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   );
 
   void _goBack() {
+    if (_searchQuery.isNotEmpty) {
+      _searchController.clear();
+      setState(() => _searchQuery = '');
+      return;
+    }
     if (_selectionExpanded) {
       setState(() => _selectionExpanded = false);
       return;
@@ -602,15 +611,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         )
         .firstOrNull;
     if (category == null) return null;
-    final menu = widget.menus
-        .where(
-          (candidate) => candidate.categories.any(
-            (menuCategory) => menuCategory.id == category.id,
-          ),
-        )
-        .firstOrNull;
-    final path = _categoryPathForProduct(productId)!;
-    return '${menu == null ? '' : '${menu.name} › '}$path · #${category.id}';
+    return _categoryPathForProduct(productId);
   }
 
   List<_ProductSearchResult> _searchResults() {
