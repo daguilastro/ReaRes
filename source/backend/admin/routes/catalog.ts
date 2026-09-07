@@ -139,8 +139,7 @@ export function createAdminCatalogRoutes(options: Options = {}) {
       }
       isSpecial = parent.isSpecial === 1;
     }
-    try {
-      const result = db().prepare(
+    const result = db().prepare(
         `INSERT INTO menu_categories
          (menu_id, name, parent_category_id, is_special, position)
          VALUES (?, ?, ?, ?, COALESCE((
@@ -149,14 +148,8 @@ export function createAdminCatalogRoutes(options: Options = {}) {
          ), 0))`,
       ).run(menuId, name, parentCategoryId, isSpecial ? 1 : 0,
         menuId, parentCategoryId);
-      return c.json({ category: { id: Number(result.lastInsertRowid), menuId,
+    return c.json({ category: { id: Number(result.lastInsertRowid), menuId,
         name, parentCategoryId, isSpecial, products: [], subcategories: [] } }, 201);
-    } catch (error) {
-      if (String(error).includes('UNIQUE constraint failed')) {
-        return c.json({ error: 'CATEGORY_NAME_TAKEN' }, 409);
-      }
-      throw error;
-    }
   });
 
   routes.put('/menus/:menuId/category-order', async (c) => {
@@ -211,16 +204,9 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     if (body instanceof Response) return body;
     const name = text(body.name, 2, 60);
     if (!name) return c.json({ error: 'INVALID_CATEGORY' }, 422);
-    try {
-      db().prepare('UPDATE menu_categories SET name = ? WHERE id = ?')
-        .run(name, categoryId);
-      return c.json({ category: { id: categoryId, menuId: current.menuId, name } });
-    } catch (error) {
-      if (String(error).includes('UNIQUE constraint failed')) {
-        return c.json({ error: 'CATEGORY_NAME_TAKEN' }, 409);
-      }
-      throw error;
-    }
+    db().prepare('UPDATE menu_categories SET name = ? WHERE id = ?')
+      .run(name, categoryId);
+    return c.json({ category: { id: categoryId, menuId: current.menuId, name } });
   });
 
   routes.post('/menus/:menuId/products', async (c) => {

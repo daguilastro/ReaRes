@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS "menu_categories" (
 	"parent_category_id" INTEGER,
 	"is_special" INTEGER NOT NULL DEFAULT 0 CHECK ("is_special" IN (0, 1)),
 	"position" INTEGER NOT NULL DEFAULT 0 CHECK ("position" >= 0),
-	UNIQUE ("menu_id", "name"),
 	FOREIGN KEY ("menu_id") REFERENCES "menu"("id") ON DELETE CASCADE,
 	FOREIGN KEY ("parent_category_id") REFERENCES "menu_categories"("id") ON DELETE CASCADE
 );

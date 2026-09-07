@@ -137,6 +137,13 @@ class _EditExternalOrderIntent {
   final ClientOrder order;
 }
 
+class _TransferTarget {
+  const _TransferTarget({required this.tableId, required this.label});
+
+  final int tableId;
+  final String label;
+}
+
 class _LiveRoomPageState extends State<LiveRoomPage> {
   static const _canvasOrigin = Offset(12000, 12000);
   static const _canvasExtent = 30000.0;
@@ -156,6 +163,29 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   double _rotation = 0;
   List<ClientOrder> _orders = [];
   _LiveToolMode _mode = _LiveToolMode.select;
+
+  void _showCenteredNotice(String message, {bool warning = false}) {
+    if (!mounted) return;
+    unawaited(
+      showGeneralDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: message,
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 180),
+        transitionBuilder: (_, animation, _, child) => FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+          child: child,
+        ),
+        pageBuilder: (_, _, _) =>
+            _CenteredNotice(message: message, warning: warning),
+      ),
+    );
+  }
 
   bool get _desktop =>
       Platform.isLinux || Platform.isMacOS || Platform.isWindows;
@@ -256,15 +286,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       _layout.acceptSaved(saved);
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.spanish
-                  ? 'No se pudo guardar el cambio.'
-                  : 'The change could not be saved.',
-            ),
-            backgroundColor: const Color(0xFFB64A4A),
-          ),
+        _showCenteredNotice(
+          widget.spanish
+              ? 'No se pudo guardar el cambio.'
+              : 'The change could not be saved.',
         );
       }
     } finally {
@@ -364,130 +389,119 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   Future<void> _openExternalOrders() async {
     final active = _orders.where((order) => order.isExternal).toList();
-    final selection = await showGeneralDialog<Object>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'External orders',
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 180),
-      transitionBuilder: (_, animation, _, child) =>
-          FadeTransition(opacity: animation, child: child),
-      pageBuilder: (dialogContext, _, _) => SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
-            child: Material(
-              color: const Color(0xFFFAF9F6),
-              borderRadius: BorderRadius.circular(22),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 15, 10, 13),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.takeout_dining_outlined),
-                        const SizedBox(width: 10),
-                        Expanded(
+    final selection = await Navigator.of(context).push<Object>(
+      PageRouteBuilder<Object>(
+        transitionDuration: const Duration(milliseconds: 180),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+        pageBuilder: (routeContext, _, _) => Scaffold(
+          backgroundColor: const Color(0xFFFAF9F6),
+          body: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        key: const ValueKey('close-external-orders'),
+                        onPressed: () => Navigator.pop(routeContext),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                      const Icon(Icons.takeout_dining_outlined),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.spanish
+                              ? 'Pedidos externos'
+                              : 'External orders',
+                          style: const TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        key: const ValueKey('create-external-order'),
+                        onPressed: () => Navigator.pop(
+                          routeContext,
+                          const _CreateExternalOrderIntent(),
+                        ),
+                        icon: const Icon(Icons.add),
+                        label: Text(widget.spanish ? 'Nuevo' : 'New'),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: active.isEmpty
+                      ? Center(
                           child: Text(
                             widget.spanish
-                                ? 'Pedidos externos'
-                                : 'External orders',
-                            style: const TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.w800,
-                            ),
+                                ? 'No hay pedidos externos activos.'
+                                : 'There are no active external orders.',
+                            style: const TextStyle(color: Color(0xFF73777C)),
                           ),
-                        ),
-                        FilledButton.icon(
-                          key: const ValueKey('create-external-order'),
-                          onPressed: () => Navigator.pop(
-                            dialogContext,
-                            const _CreateExternalOrderIntent(),
-                          ),
-                          icon: const Icon(Icons.add),
-                          label: Text(widget.spanish ? 'Nuevo' : 'New'),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(dialogContext),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: active.isEmpty
-                        ? Center(
-                            child: Text(
-                              widget.spanish
-                                  ? 'No hay pedidos externos activos.'
-                                  : 'There are no active external orders.',
-                              style: const TextStyle(color: Color(0xFF73777C)),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: active.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 9),
-                            itemBuilder: (_, index) {
-                              final order = active[index];
-                              return ListTile(
-                                key: ValueKey('external-order-${order.id}'),
-                                tileColor: order.status == 'waiting'
-                                    ? const Color(0xFFFFF1B8)
-                                    : const Color(0xFFDDF1D9),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: active.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 9),
+                          itemBuilder: (_, index) {
+                            final order = active[index];
+                            return ListTile(
+                              key: ValueKey('external-order-${order.id}'),
+                              tileColor: order.status == 'waiting'
+                                  ? const Color(0xFFFFF1B8)
+                                  : const Color(0xFFDDF1D9),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                              leading: Icon(
+                                order.status == 'waiting'
+                                    ? Icons.schedule_rounded
+                                    : Icons.restaurant_rounded,
+                              ),
+                              title: Text(
+                                order.externalName!,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
                                 ),
-                                leading: Icon(
-                                  order.status == 'waiting'
-                                      ? Icons.schedule_rounded
-                                      : Icons.restaurant_rounded,
-                                ),
-                                title: Text(
-                                  order.externalName!,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  order.status == 'waiting'
-                                      ? (widget.spanish
-                                            ? 'Esperando productos'
-                                            : 'Waiting for items')
-                                      : (widget.spanish
-                                            ? 'Comiendo'
-                                            : 'Eating'),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      key: ValueKey(
-                                        'edit-external-order-${order.id}',
-                                      ),
-                                      tooltip: widget.spanish
-                                          ? 'Añadir o modificar productos'
-                                          : 'Add or edit items',
-                                      onPressed: () => Navigator.pop(
-                                        dialogContext,
-                                        _EditExternalOrderIntent(order),
-                                      ),
-                                      icon: const Icon(Icons.edit_outlined),
+                              ),
+                              subtitle: Text(
+                                order.status == 'waiting'
+                                    ? (widget.spanish
+                                          ? 'Esperando productos'
+                                          : 'Waiting for items')
+                                    : (widget.spanish ? 'Comiendo' : 'Eating'),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    key: ValueKey(
+                                      'edit-external-order-${order.id}',
                                     ),
-                                    const Icon(Icons.chevron_right),
-                                  ],
-                                ),
-                                onTap: () =>
-                                    Navigator.pop(dialogContext, order),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
+                                    tooltip: widget.spanish
+                                        ? 'Añadir o modificar productos'
+                                        : 'Add or edit items',
+                                    onPressed: () => Navigator.pop(
+                                      routeContext,
+                                      _EditExternalOrderIntent(order),
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
+                                  const Icon(Icons.chevron_right),
+                                ],
+                              ),
+                              onTap: () => Navigator.pop(routeContext, order),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
           ),
         ),
@@ -700,14 +714,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       );
     } on Object {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.spanish
-                ? 'No se pudo cargar el historial del día.'
-                : 'Could not load today’s history.',
-          ),
-        ),
+      _showCenteredNotice(
+        widget.spanish
+            ? 'No se pudo cargar el historial del día.'
+            : 'Could not load today’s history.',
       );
     }
   }
@@ -1088,15 +1098,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   Future<void> _toggleSelectedGroup() async {
     if (_layout.canUngroup) {
       if (_selectedGroupHasActiveOrder) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFB68232),
-            content: Text(
-              widget.spanish
-                  ? 'No puedes desenlazar mesas con un pedido activo.'
-                  : 'Tables with an active order cannot be unlinked.',
-            ),
-          ),
+        _showCenteredNotice(
+          widget.spanish
+              ? 'No puedes desenlazar mesas con un pedido activo.'
+              : 'Tables with an active order cannot be unlinked.',
+          warning: true,
         );
         return;
       }
@@ -1280,41 +1286,59 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       await _reload();
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFB64A4A),
-            content: Text(
-              widget.spanish
-                  ? 'No se pudo abrir el pedido.'
-                  : 'Could not open order.',
-            ),
-          ),
+        _showCenteredNotice(
+          widget.spanish
+              ? 'No se pudo abrir el pedido.'
+              : 'Could not open order.',
         );
       }
     }
   }
 
   Future<bool> _chooseTransferTarget(ClientOrder order) async {
-    final available = _layout.tables.where((table) {
-      if (table.status != 'available') return false;
+    final available = <_TransferTarget>[];
+    final addedGroups = <int>{};
+    for (final table in _layout.tables) {
       final group = _layout.groupForTable(table.id);
-      return group == null ||
-          group.tableIds.every((id) {
-            final member = _layout.tables
-                .where((item) => item.id == id)
-                .firstOrNull;
-            return member?.status == 'available';
-          });
-    }).toList();
-    if (available.isEmpty || !mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.spanish
-                ? 'No hay mesas disponibles en este salón.'
-                : 'There are no available tables in this room.',
-          ),
+      if (group == null) {
+        if (table.status == 'available' && _orderForTable(table.id) == null) {
+          available.add(
+            _TransferTarget(tableId: table.id, label: table.identifier),
+          );
+        }
+        continue;
+      }
+      if (!addedGroups.add(group.id)) continue;
+      final members = _layout.tables
+          .where((candidate) => group.tableIds.contains(candidate.id))
+          .toList();
+      if (members.isEmpty ||
+          members.any(
+            (member) =>
+                member.status != 'available' ||
+                _orderForTable(member.id) != null,
+          )) {
+        continue;
+      }
+      members.sort((a, b) => a.id.compareTo(b.id));
+      final fallbackLabel = members
+          .map((member) => member.identifier)
+          .join(' + ');
+      available.add(
+        _TransferTarget(
+          tableId: members.first.id,
+          label: group.identifier?.trim().isNotEmpty == true
+              ? group.identifier!.trim()
+              : fallbackLabel,
         ),
+      );
+    }
+    if (available.isEmpty || !mounted) {
+      _showCenteredNotice(
+        widget.spanish
+            ? 'No hay mesas disponibles en este salón.'
+            : 'There are no available tables in this room.',
+        warning: true,
       );
       return false;
     }
@@ -1338,12 +1362,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     spacing: 9,
                     runSpacing: 9,
                     children: [
-                      for (final table in available)
+                      for (final target in available)
                         OutlinedButton(
-                          key: ValueKey('transfer-target-${table.id}'),
+                          key: ValueKey('transfer-target-${target.tableId}'),
                           onPressed: () =>
-                              Navigator.pop(dialogContext, table.id),
-                          child: Text(table.identifier),
+                              Navigator.pop(dialogContext, target.tableId),
+                          child: Text(target.label),
                         ),
                     ],
                   ),
@@ -1372,15 +1396,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       return true;
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFB64A4A),
-            content: Text(
-              widget.spanish
-                  ? 'No se pudo trasladar el pedido.'
-                  : 'The order could not be transferred.',
-            ),
-          ),
+        _showCenteredNotice(
+          widget.spanish
+              ? 'No se pudo trasladar el pedido.'
+              : 'The order could not be transferred.',
         );
       }
       return false;
@@ -1395,15 +1414,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       return value.tableGroupId == null && value.tableId == clickedTableId;
     }).firstOrNull;
     if (order == null || !mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFFB64A4A),
-          content: Text(
-            widget.spanish
-                ? 'No hay pedido activo para facturar.'
-                : 'There is no active order to bill.',
-          ),
-        ),
+      _showCenteredNotice(
+        widget.spanish
+            ? 'No hay pedido activo para facturar.'
+            : 'There is no active order to bill.',
+        warning: true,
       );
       return;
     }
@@ -1411,15 +1426,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       (item) => item.deliveredQuantity < item.quantity,
     );
     if (order.status != 'eating' || hasPendingItems) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFFB68232),
-          content: Text(
-            widget.spanish
-                ? 'Solo puedes facturar cuando todos los productos hayan sido entregados y la mesa esté comiendo.'
-                : 'You can only bill after every item is delivered and the table is eating.',
-          ),
-        ),
+      _showCenteredNotice(
+        widget.spanish
+            ? 'Solo puedes facturar cuando todos los productos hayan sido entregados y la mesa esté comiendo.'
+            : 'You can only bill after every item is delivered and the table is eating.',
+        warning: true,
       );
       return;
     }
@@ -1468,16 +1479,101 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       await _reload();
     } on Object {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFFB64A4A),
-          content: Text(
-            widget.spanish
-                ? 'No se pudo abrir la caja de esta mesa.'
-                : 'Could not open the cashier view for this table.',
-          ),
-        ),
+      _showCenteredNotice(
+        widget.spanish
+            ? 'No se pudo abrir la caja de esta mesa.'
+            : 'Could not open the cashier view for this table.',
       );
     }
   }
+}
+
+class _CenteredNotice extends StatefulWidget {
+  const _CenteredNotice({required this.message, required this.warning});
+
+  final String message;
+  final bool warning;
+
+  @override
+  State<_CenteredNotice> createState() => _CenteredNoticeState();
+}
+
+class _CenteredNoticeState extends State<_CenteredNotice> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 1500), _close);
+  }
+
+  void _close() {
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: _close,
+    child: Material(
+      color: Colors.transparent,
+      child: Center(
+        child: IgnorePointer(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 420),
+            margin: const EdgeInsets.symmetric(horizontal: 28),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDFDFC),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: widget.warning
+                    ? const Color(0xFFE5C077)
+                    : const Color(0xFFE1A09D),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x29000000),
+                  blurRadius: 24,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.warning
+                      ? Icons.info_outline_rounded
+                      : Icons.error_outline_rounded,
+                  color: widget.warning
+                      ? const Color(0xFFB68232)
+                      : const Color(0xFFB64A4A),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    widget.message,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }

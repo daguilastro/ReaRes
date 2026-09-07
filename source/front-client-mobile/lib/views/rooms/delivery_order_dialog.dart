@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/client_order.dart';
+import 'centered_notice.dart';
 
 class DeliveryOrderDialog extends StatefulWidget {
   const DeliveryOrderDialog({
@@ -438,12 +439,7 @@ class _DeliveryOrderDialogState extends State<DeliveryOrderDialog> {
               ? 'No se pudo marcar el producto como entregado.'
               : 'The item could not be marked as delivered.';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFB64A4A),
-            content: Text(_error!),
-          ),
-        );
+        showCenteredNotice(context, _error!);
       }
     } finally {
       if (mounted) setState(() => _delivering.remove(operationKey));
@@ -468,15 +464,11 @@ class _DeliveryOrderDialogState extends State<DeliveryOrderDialog> {
       }
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFB64A4A),
-            content: Text(
-              _es
-                  ? 'No se pudo deshacer la entrega.'
-                  : 'The delivery could not be undone.',
-            ),
-          ),
+        showCenteredNotice(
+          context,
+          _es
+              ? 'No se pudo deshacer la entrega.'
+              : 'The delivery could not be undone.',
         );
       }
     } finally {

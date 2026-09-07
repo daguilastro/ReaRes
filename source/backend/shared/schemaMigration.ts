@@ -74,7 +74,6 @@ function migrateSpecialCategoryHierarchy(database: DatabaseSync): void {
       parent_category_id INTEGER,
       is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1)),
       position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
-      UNIQUE (menu_id, name),
       FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_category_id)
         REFERENCES menu_categories_hierarchy_migration(id) ON DELETE CASCADE
@@ -381,6 +380,7 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
     `);
   }
   migrateSpecialCategoryHierarchy(database);
+  removeCategoryNameUniqueness(database);
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS ingredient_categories (
@@ -415,7 +415,6 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
       menu_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
-      UNIQUE (menu_id, name),
       FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS product_halls (
@@ -453,6 +452,52 @@ export function ensureCatalogSchema(database: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS ingredients_category_id_idx ON ingredients(category_id);
   `);
   ensureSpecialCategoryConstraints(database);
+}
+
+function removeCategoryNameUniqueness(database: DatabaseSync): void {
+  const uniqueIndexes = database.prepare(
+    "PRAGMA index_list('menu_categories')",
+  ).all() as Array<{ name: string; unique: number; origin: string }>;
+  const hasNameConstraint = uniqueIndexes.some((index) => {
+    if (index.unique !== 1 || index.origin !== 'u') return false;
+    const columns = database.prepare(
+      `PRAGMA index_info('${index.name.replaceAll("'", "''")}')`,
+    ).all() as Array<{ name: string }>;
+    return columns.length === 2 &&
+      columns[0].name === 'menu_id' && columns[1].name === 'name';
+  });
+  if (!hasNameConstraint) return;
+
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN IMMEDIATE;
+    DROP TRIGGER IF EXISTS menu_categories_special_root_insert;
+    DROP TRIGGER IF EXISTS menu_categories_special_root_update;
+    CREATE TABLE menu_categories_without_name_uniqueness (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      menu_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      parent_category_id INTEGER,
+      is_special INTEGER NOT NULL DEFAULT 0 CHECK (is_special IN (0, 1)),
+      position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+      FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_category_id)
+        REFERENCES menu_categories_without_name_uniqueness(id) ON DELETE CASCADE
+    );
+    INSERT INTO menu_categories_without_name_uniqueness
+      (id, menu_id, name, parent_category_id, is_special, position)
+      SELECT id, menu_id, name, parent_category_id, is_special, position
+      FROM menu_categories;
+    DROP TABLE menu_categories;
+    ALTER TABLE menu_categories_without_name_uniqueness
+      RENAME TO menu_categories;
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+  const violations = database.prepare('PRAGMA foreign_key_check').all();
+  if (violations.length > 0) {
+    throw new Error('La migración de categorías dejó claves foráneas inválidas.');
+  }
 }
 
 function removeProductNameUniqueness(database: DatabaseSync): void {

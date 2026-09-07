@@ -31,7 +31,9 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   final Set<String> _expandedLineKeys = {};
   int _nextLine = 1;
   final _orderDescription = TextEditingController();
+  final _searchController = TextEditingController();
   int? _categoryId;
+  String _searchQuery = '';
   bool _selectionExpanded = false;
   bool _saving = false;
   String? _submitError;
@@ -72,6 +74,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   @override
   void dispose() {
     _orderDescription.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -530,6 +533,8 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         unit < source.deliveredQuantity) {
       return;
     }
+    final undoLength = _undo.length;
+    final original = source.copy();
     _remember();
     final newKey = 'custom:${_nextLine++}';
     final individual = source.copy()
@@ -541,6 +546,31 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       if (source.quantity <= 1) _expandedLineKeys.remove(key);
     });
     await _showProductDetails(individual.product, draftKey: newKey);
+    if (!mounted) return;
+    final edited = _lines[newKey];
+    final hasAttachedSpecials = _lines.values.any(
+      (candidate) => candidate.parentLineKey == newKey,
+    );
+    final unchanged =
+        edited != null &&
+        edited.product.id == original.product.id &&
+        edited.quantity == 1 &&
+        edited.specifications == original.specifications &&
+        edited.removedIngredientIds.length ==
+            original.removedIngredientIds.length &&
+        edited.removedIngredientIds.containsAll(
+          original.removedIngredientIds,
+        ) &&
+        !hasAttachedSpecials;
+    if (unchanged) {
+      setState(() {
+        source.quantity++;
+        _lines.remove(newKey);
+        while (_undo.length > undoLength) {
+          _undo.removeLast();
+        }
+      });
+    }
   }
 
   String? _categoryPathForProduct(int productId) {
@@ -564,7 +594,149 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     return names.reversed.join(' › ');
   }
 
+  String? _searchCategoryLabel(int productId) {
+    final category = _categories
+        .where(
+          (candidate) =>
+              candidate.products.any((product) => product.id == productId),
+        )
+        .firstOrNull;
+    if (category == null) return null;
+    final menu = widget.menus
+        .where(
+          (candidate) => candidate.categories.any(
+            (menuCategory) => menuCategory.id == category.id,
+          ),
+        )
+        .firstOrNull;
+    final path = _categoryPathForProduct(productId)!;
+    return '${menu == null ? '' : '${menu.name} › '}$path · #${category.id}';
+  }
+
+  List<_ProductSearchResult> _searchResults() {
+    final query = _normalizeSearchText(_searchQuery.trim());
+    if (query.isEmpty) return const [];
+    final results = <_ProductSearchResult>[];
+    for (final product in _products) {
+      final category = _searchCategoryLabel(product.id) ?? '';
+      final productName = _normalizeSearchText(product.name);
+      final categoryName = _normalizeSearchText(category);
+      final score = _matchScore(productName, categoryName, query);
+      if (score != null) {
+        results.add(
+          _ProductSearchResult(
+            product: product,
+            categoryLabel: category,
+            score: score,
+          ),
+        );
+      }
+    }
+    results.sort((left, right) {
+      final score = left.score.compareTo(right.score);
+      if (score != 0) return score;
+      return left.product.name.toLowerCase().compareTo(
+        right.product.name.toLowerCase(),
+      );
+    });
+    return results;
+  }
+
+  String _normalizeSearchText(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp('[áàäâ]'), 'a')
+      .replaceAll(RegExp('[éèëê]'), 'e')
+      .replaceAll(RegExp('[íìïî]'), 'i')
+      .replaceAll(RegExp('[óòöô]'), 'o')
+      .replaceAll(RegExp('[úùüû]'), 'u')
+      .replaceAll('ñ', 'n');
+
+  int? _matchScore(String product, String category, String query) {
+    if (product == query) return 0;
+    if (product.startsWith(query)) return 10 + product.length - query.length;
+    final productIndex = product.indexOf(query);
+    if (productIndex >= 0) return 30 + productIndex;
+    if (category.startsWith(query)) return 60 + category.length - query.length;
+    final categoryIndex = category.indexOf(query);
+    if (categoryIndex >= 0) return 90 + categoryIndex;
+    final combined = '$product $category';
+    var cursor = 0;
+    var gaps = 0;
+    for (final codeUnit in query.codeUnits) {
+      final index = combined.indexOf(String.fromCharCode(codeUnit), cursor);
+      if (index < 0) return null;
+      gaps += index - cursor;
+      cursor = index + 1;
+    }
+    return 140 + gaps;
+  }
+
   Widget _catalog() {
+    final searchResults = _searchResults();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          child: TextField(
+            key: const ValueKey('order-product-search'),
+            controller: _searchController,
+            textInputAction: TextInputAction.search,
+            onChanged: (value) => setState(() => _searchQuery = value),
+            decoration: InputDecoration(
+              hintText: _es ? 'Buscar productos' : 'Search products',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searchQuery.isEmpty
+                  ? null
+                  : IconButton(
+                      key: const ValueKey('clear-order-product-search'),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(color: Color(0xFFDDE2E7)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: const BorderSide(color: Color(0xFFDDE2E7)),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _searchQuery.trim().isNotEmpty
+              ? _searchCatalog(searchResults)
+              : _categoryCatalog(),
+        ),
+      ],
+    );
+  }
+
+  Widget _searchCatalog(List<_ProductSearchResult> results) {
+    if (results.isEmpty) {
+      return Center(
+        child: Text(
+          _es ? 'No se encontraron productos.' : 'No products found.',
+          style: const TextStyle(color: Color(0xFF73777C)),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      itemCount: results.length,
+      itemBuilder: (_, index) {
+        final result = results[index];
+        return _productRow(result.product, categoryLabel: result.categoryLabel);
+      },
+    );
+  }
+
+  Widget _categoryCatalog() {
     final current = _categories
         .where((item) => item.id == _categoryId)
         .firstOrNull;
@@ -592,10 +764,20 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             ),
             itemBuilder: (_, index) {
               final category = roots[index];
+              final duplicateName =
+                  roots
+                      .where(
+                        (candidate) =>
+                            candidate.name.toLowerCase() ==
+                            category.name.toLowerCase(),
+                      )
+                      .length >
+                  1;
               return _CategoryButton(
                 key: ValueKey('order-category-${category.id}'),
                 category: category,
                 square: true,
+                showIdentifier: duplicateName,
                 onTap: () => setState(() => _categoryId = category.id),
               );
             },
@@ -634,18 +816,35 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             _CategoryButton(
               key: ValueKey('order-category-${children[index].id}'),
               category: children[index],
+              showIdentifier:
+                  children
+                      .where(
+                        (candidate) =>
+                            candidate.name.toLowerCase() ==
+                            children[index].name.toLowerCase(),
+                      )
+                      .length >
+                  1,
               onTap: () => setState(() => _categoryId = children[index].id),
             ),
             if (index < children.length - 1) const SizedBox(height: 10),
           ],
           const SizedBox(height: 16),
         ],
-        for (final product in products) _productRow(product),
+        for (final product in products)
+          _productRow(
+            product,
+            categoryLabel:
+                '${_categoryPathForProduct(product.id)} · #${current.id}',
+          ),
       ],
     );
   }
 
-  Widget _productRow(ClientMenuProduct product) {
+  Widget _productRow(
+    ClientMenuProduct product, {
+    required String? categoryLabel,
+  }) {
     final quantity = _lines[_defaultKey(product.id)]?.quantity ?? 0;
     return Card(
       key: ValueKey('order-product-${product.id}'),
@@ -673,6 +872,18 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (categoryLabel?.isNotEmpty == true) ...[
+                const SizedBox(height: 3),
+                Text(
+                  categoryLabel!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF71859B),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
               if ((product.description ?? '').isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -807,17 +1018,21 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         );
     int? selectedSpecialCategoryId;
     final customizationScrollController = ScrollController();
+    final specialPanelKeys = <int, GlobalKey>{};
     var customizationOpen = true;
-    void revealSpecialProducts() {
+    void revealSpecialProducts(int categoryId) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await Future<void>.delayed(const Duration(milliseconds: 120));
+        await Future<void>.delayed(const Duration(milliseconds: 230));
         if (!customizationOpen || !customizationScrollController.hasClients) {
           return;
         }
-        customizationScrollController.animateTo(
-          customizationScrollController.position.maxScrollExtent,
+        final targetContext = specialPanelKeys[categoryId]?.currentContext;
+        if (targetContext == null || !targetContext.mounted) return;
+        await Scrollable.ensureVisible(
+          targetContext,
           duration: const Duration(milliseconds: 280),
           curve: Curves.easeOutCubic,
+          alignment: 0,
         );
       });
     }
@@ -990,7 +1205,9 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                                     ? category.id
                                     : null;
                               });
-                              if (willOpen) revealSpecialProducts();
+                              if (willOpen) {
+                                revealSpecialProducts(category.id);
+                              }
                             },
                           ),
                       ],
@@ -1011,7 +1228,10 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                       child: selectedSpecialCategoryId == null
                           ? const SizedBox.shrink()
                           : _SpecialProductsPanel(
-                              key: ValueKey(selectedSpecialCategoryId),
+                              key: specialPanelKeys.putIfAbsent(
+                                selectedSpecialCategoryId!,
+                                GlobalKey.new,
+                              ),
                               category: specialCategories.firstWhere(
                                 (item) => item.id == selectedSpecialCategoryId,
                               ),
@@ -1022,7 +1242,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                                 modalSetState(() {
                                   selectedSpecialCategoryId = categoryId;
                                 });
-                                revealSpecialProducts();
+                                revealSpecialProducts(categoryId);
                               },
                               onChanged: (special, delta) => modalSetState(() {
                                 specialQuantities[special.id] =
@@ -1261,16 +1481,30 @@ class _DraftLine {
   );
 }
 
+class _ProductSearchResult {
+  const _ProductSearchResult({
+    required this.product,
+    required this.categoryLabel,
+    required this.score,
+  });
+
+  final ClientMenuProduct product;
+  final String categoryLabel;
+  final int score;
+}
+
 class _CategoryButton extends StatelessWidget {
   const _CategoryButton({
     super.key,
     required this.category,
     required this.onTap,
     this.square = false,
+    this.showIdentifier = false,
   });
   final ClientMenuCategory category;
   final VoidCallback onTap;
   final bool square;
+  final bool showIdentifier;
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
@@ -1305,18 +1539,30 @@ class _CategoryButton extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Flexible(
-                    child: Center(
-                      child: Text(
-                        category.name,
-                        textAlign: TextAlign.center,
-                        softWrap: true,
-                        style: const TextStyle(
-                          color: Color(0xFF292D32),
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          height: 1.15,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          category.name,
+                          textAlign: TextAlign.center,
+                          softWrap: true,
+                          style: const TextStyle(
+                            color: Color(0xFF292D32),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            height: 1.15,
+                          ),
                         ),
-                      ),
+                        if (showIdentifier)
+                          Text(
+                            '#${category.id}',
+                            style: const TextStyle(
+                              color: Color(0xFF71859B),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ],
@@ -1337,13 +1583,27 @@ class _CategoryButton extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      category.name,
-                      style: const TextStyle(
-                        color: Color(0xFF292D32),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          category.name,
+                          style: const TextStyle(
+                            color: Color(0xFF292D32),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (showIdentifier)
+                          Text(
+                            '#${category.id}',
+                            style: const TextStyle(
+                              color: Color(0xFF71859B),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const Icon(
