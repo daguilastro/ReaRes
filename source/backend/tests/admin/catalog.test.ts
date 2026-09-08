@@ -51,6 +51,13 @@ test('an admin builds menus with categories, products and room restrictions', as
   const secondaryMenuId = (await secondaryMenuResponse.json() as {
     menu: { id: number };
   }).menu.id;
+  const secondaryCategoryId = Number(database.prepare(
+    'INSERT INTO menu_categories (menu_id, name) VALUES (?, ?)',
+  ).run(secondaryMenuId, 'Sides').lastInsertRowid);
+  const secondaryProductId = Number(database.prepare(
+    `INSERT INTO products (name, value, menu_id, category_id)
+     VALUES (?, ?, ?, ?)`,
+  ).run('Fries', 8500, secondaryMenuId, secondaryCategoryId).lastInsertRowid);
   const duplicatePrimary = await app.request('/menus', {
     method: 'POST', headers,
     body: JSON.stringify({ name: 'Lunch', hallAssignments: [
@@ -61,19 +68,19 @@ test('an admin builds menus with categories, products and room restrictions', as
 
   const invalidRoomMenus = await app.request('/rooms/1/menus', {
     method: 'PUT', headers,
-    body: JSON.stringify({ assignments: [
-      { menuId, isPrimary: true },
-      { menuId: secondaryMenuId, isPrimary: true },
-    ] }),
+    body: JSON.stringify({
+      primaryMenuId: menuId,
+      secondaryMenus: [{ menuId: secondaryMenuId, productIds: [99999] }],
+    }),
   });
   assert.equal(invalidRoomMenus.status, 422);
 
   const roomMenusResponse = await app.request('/rooms/1/menus', {
     method: 'PUT', headers,
-    body: JSON.stringify({ assignments: [
-      { menuId, isPrimary: true },
-      { menuId: secondaryMenuId, isPrimary: false },
-    ] }),
+    body: JSON.stringify({
+      primaryMenuId: menuId,
+      secondaryMenus: [{ menuId: secondaryMenuId, productIds: [secondaryProductId] }],
+    }),
   });
   assert.equal(roomMenusResponse.status, 200);
   const savedRoomMenus = database.prepare(
@@ -83,6 +90,12 @@ test('an admin builds menus with categories, products and room restrictions', as
   assert.deepEqual(savedRoomMenus.map((item) => ({ ...item })), [
     { menuId, isPrimary: 1 },
     { menuId: secondaryMenuId, isPrimary: 0 },
+  ]);
+  assert.deepEqual(database.prepare(
+    `SELECT product_id AS productId, hall_id AS hallId
+     FROM product_halls WHERE hall_id = 1`,
+  ).all().map((item) => ({ ...item })), [
+    { productId: secondaryProductId, hallId: 1 },
   ]);
 
   const withoutCategory = await app.request(`/menus/${menuId}/products`, {

@@ -392,7 +392,7 @@ void main() {
   testWidgets('rooms overview shows statistics before opening an editor', (
     tester,
   ) async {
-    List<RoomMenuAssignment>? savedAssignments;
+    RoomMenuConfiguration? savedConfiguration;
     const room = RoomSummary(
       id: 8,
       name: 'Terraza',
@@ -426,7 +426,24 @@ void main() {
                   hallAssignments: [
                     MenuHallAssignment(hallId: 8, isPrimary: false),
                   ],
-                  categories: [],
+                  categories: [
+                    MenuCategory(
+                      id: 50,
+                      menuId: 5,
+                      name: 'Sides',
+                      products: [
+                        CatalogProduct(
+                          id: 51,
+                          name: 'Fries',
+                          value: 8500,
+                          menuId: 5,
+                          categoryId: 50,
+                          ingredientIds: [],
+                          hallIds: [8],
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -434,10 +451,10 @@ void main() {
                 ({
                   required token,
                   required roomId,
-                  required assignments,
+                  required configuration,
                 }) async {
                   expect(roomId, 8);
-                  savedAssignments = assignments;
+                  savedConfiguration = configuration;
                 },
             editorBuilder: (selected, onBack) => Center(
               key: const ValueKey('fake-room-editor'),
@@ -461,15 +478,10 @@ void main() {
     expect(find.text('Extras'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('save-room-menus')));
     await tester.pumpAndSettle();
-    expect(savedAssignments, hasLength(2));
-    expect(
-      savedAssignments!.singleWhere((item) => item.menuId == 4).isPrimary,
-      isTrue,
-    );
-    expect(
-      savedAssignments!.singleWhere((item) => item.menuId == 5).isPrimary,
-      isFalse,
-    );
+    expect(savedConfiguration!.primaryMenuId, 4);
+    expect(savedConfiguration!.secondaryMenus, hasLength(1));
+    expect(savedConfiguration!.secondaryMenus.single.menuId, 5);
+    expect(savedConfiguration!.secondaryMenus.single.productIds, [51]);
     await tester.tap(find.byKey(const ValueKey('room-card-8')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('fake-room-editor')), findsOneWidget);

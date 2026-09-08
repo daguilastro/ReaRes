@@ -121,11 +121,24 @@ class MenuHallAssignment {
   final bool isPrimary;
 }
 
-class RoomMenuAssignment {
-  const RoomMenuAssignment({required this.menuId, required this.isPrimary});
+class SecondaryRoomMenuSelection {
+  const SecondaryRoomMenuSelection({
+    required this.menuId,
+    required this.productIds,
+  });
 
   final int menuId;
-  final bool isPrimary;
+  final List<int> productIds;
+}
+
+class RoomMenuConfiguration {
+  const RoomMenuConfiguration({
+    required this.primaryMenuId,
+    required this.secondaryMenus,
+  });
+
+  final int primaryMenuId;
+  final List<SecondaryRoomMenuSelection> secondaryMenus;
 }
 
 class RestaurantMenu {
@@ -162,6 +175,19 @@ class RestaurantMenu {
       .toList();
   int get productCount =>
       categories.fold(0, (sum, item) => sum + item.recursiveProductCount);
+
+  List<CatalogProduct> get products => [
+    for (final category in categories) ..._categoryProducts(category),
+  ];
+
+  static Iterable<CatalogProduct> _categoryProducts(
+    MenuCategory category,
+  ) sync* {
+    yield* category.products;
+    for (final child in category.subcategories) {
+      yield* _categoryProducts(child);
+    }
+  }
 }
 
 class CatalogSnapshot {

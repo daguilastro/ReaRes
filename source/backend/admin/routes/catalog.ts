@@ -41,23 +41,38 @@ export function createAdminCatalogRoutes(options: Options = {}) {
     }
     const body = await readJson(c);
     if (body instanceof Response) return body;
-    const assignments = roomMenuAssignments(body.assignments);
-    if (!assignments || assignments.filter(({ isPrimary }) => isPrimary).length > 1 ||
-        !allExist(db(), 'menu', assignments.map(({ menuId }) => menuId))) {
+    const primaryMenuId = Number(body.primaryMenuId);
+    const secondaryMenus = roomSecondaryMenus(body.secondaryMenus);
+    const menuIds = secondaryMenus
+      ? [primaryMenuId, ...secondaryMenus.map(({ menuId }) => menuId)]
+      : [];
+    if (!Number.isSafeInteger(primaryMenuId) || primaryMenuId < 1 ||
+        !secondaryMenus || secondaryMenus.some(({ menuId }) => menuId === primaryMenuId) ||
+        !allExist(db(), 'menu', menuIds) ||
+        secondaryMenus.some((selection) =>
+          !activeProductsBelongToMenu(db(), selection.menuId, selection.productIds))) {
       return c.json({ error: 'INVALID_MENU_ASSIGNMENTS' }, 422);
     }
     const database = db();
     try {
       database.exec('BEGIN IMMEDIATE');
+      database.prepare('DELETE FROM product_halls WHERE hall_id = ?').run(roomId);
       database.prepare('DELETE FROM menu_halls WHERE hall_id = ?').run(roomId);
-      const insert = database.prepare(
+      const insertMenu = database.prepare(
         'INSERT INTO menu_halls (menu_id, hall_id, is_primary) VALUES (?, ?, ?)',
       );
-      for (const assignment of assignments) {
-        insert.run(assignment.menuId, roomId, assignment.isPrimary ? 1 : 0);
+      insertMenu.run(primaryMenuId, roomId, 1);
+      const insertProduct = database.prepare(
+        'INSERT INTO product_halls (product_id, hall_id) VALUES (?, ?)',
+      );
+      for (const selection of secondaryMenus) {
+        insertMenu.run(selection.menuId, roomId, 0);
+        for (const productId of selection.productIds) {
+          insertProduct.run(productId, roomId);
+        }
       }
       database.exec('COMMIT');
-      return c.json({ assignments });
+      return c.json({ primaryMenuId, secondaryMenus });
     } catch (error) {
       try { database.exec('ROLLBACK'); } catch { /* Sin transacción activa. */ }
       throw error;
@@ -529,25 +544,36 @@ function hallAssignments(value: unknown): Array<{
   return result;
 }
 
-function roomMenuAssignments(value: unknown): Array<{
-  menuId: number; isPrimary: boolean;
+function roomSecondaryMenus(value: unknown): Array<{
+  menuId: number; productIds: number[];
 }> | undefined {
   if (!Array.isArray(value)) return undefined;
-  const result: Array<{ menuId: number; isPrimary: boolean }> = [];
+  const result: Array<{ menuId: number; productIds: number[] }> = [];
   const seen = new Set<number>();
   for (const raw of value) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       return undefined;
     }
     const item = raw as Record<string, unknown>;
+    const productIds = ids(item.productIds);
     if (!Number.isSafeInteger(item.menuId) || (item.menuId as number) < 1 ||
-        typeof item.isPrimary !== 'boolean' || seen.has(item.menuId as number)) {
+        !productIds || productIds.length === 0 || seen.has(item.menuId as number)) {
       return undefined;
     }
     seen.add(item.menuId as number);
-    result.push({ menuId: item.menuId as number, isPrimary: item.isPrimary });
+    result.push({ menuId: item.menuId as number, productIds });
   }
   return result;
+}
+
+function activeProductsBelongToMenu(database: DatabaseSync, menuId: number,
+  productIds: number[]) {
+  const placeholders = productIds.map(() => '?').join(',');
+  const row = database.prepare(
+    `SELECT COUNT(*) AS count FROM products
+     WHERE menu_id = ? AND is_active = 1 AND id IN (${placeholders})`,
+  ).get(menuId, ...productIds) as { count: number };
+  return row.count === productIds.length;
 }
 
 function text(value: unknown, minimum: number, maximum: number) {

@@ -14,7 +14,7 @@ typedef SaveRoomMenus =
     Future<void> Function({
       required String token,
       required int roomId,
-      required List<RoomMenuAssignment> assignments,
+      required RoomMenuConfiguration configuration,
     });
 typedef RoomEditorBuilder =
     Widget Function(RoomSummary room, VoidCallback onBack);
@@ -278,16 +278,16 @@ class _HallsPageState extends State<HallsPage> {
         );
         return;
       }
-      final assignments = await showDialog<List<RoomMenuAssignment>>(
+      final configuration = await showDialog<RoomMenuConfiguration>(
         context: context,
         builder: (_) =>
             _RoomMenusDialog(spanish: _es, room: room, menus: catalog.menus),
       );
-      if (assignments == null || !mounted) return;
+      if (configuration == null || !mounted) return;
       await widget.saveMenus(
         token: widget.token,
         roomId: room.id,
-        assignments: assignments,
+        configuration: configuration,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -419,8 +419,6 @@ class _RoomCard extends StatelessWidget {
   );
 }
 
-enum _RoomMenuMode { none, primary, secondary }
-
 class _RoomMenusDialog extends StatefulWidget {
   const _RoomMenusDialog({
     required this.spanish,
@@ -437,25 +435,35 @@ class _RoomMenusDialog extends StatefulWidget {
 }
 
 class _RoomMenusDialogState extends State<_RoomMenusDialog> {
-  late final Map<int, _RoomMenuMode> _modes = {
+  late int? _primaryMenuId = widget.menus
+      .where((menu) => menu.primaryHallIds.contains(widget.room.id))
+      .firstOrNull
+      ?.id;
+  late final Set<int> _secondaryMenuIds = {
     for (final menu in widget.menus)
-      menu.id: menu.primaryHallIds.contains(widget.room.id)
-          ? _RoomMenuMode.primary
-          : menu.secondaryHallIds.contains(widget.room.id)
-          ? _RoomMenuMode.secondary
-          : _RoomMenuMode.none,
+      if (menu.secondaryHallIds.contains(widget.room.id)) menu.id,
+  };
+  late final Map<int, Set<int>> _secondaryProductIds = {
+    for (final menu in widget.menus)
+      menu.id: {
+        for (final product in menu.products)
+          if (product.hallIds.contains(widget.room.id)) product.id,
+      },
   };
 
-  void _setMode(int menuId, _RoomMenuMode mode) {
+  bool get _canSave =>
+      _primaryMenuId != null &&
+      _secondaryMenuIds.every(
+        (menuId) => _secondaryProductIds[menuId]!.isNotEmpty,
+      );
+
+  void _toggleSecondary(RestaurantMenu menu, bool selected) {
     setState(() {
-      if (mode == _RoomMenuMode.primary) {
-        for (final entry in _modes.entries) {
-          if (entry.value == _RoomMenuMode.primary && entry.key != menuId) {
-            _modes[entry.key] = _RoomMenuMode.secondary;
-          }
-        }
+      if (selected) {
+        _secondaryMenuIds.add(menu.id);
+      } else {
+        _secondaryMenuIds.remove(menu.id);
       }
-      _modes[menuId] = mode;
     });
   }
 
@@ -467,53 +475,65 @@ class _RoomMenusDialogState extends State<_RoomMenusDialog> {
           : '${widget.room.name} menus',
     ),
     content: SizedBox(
-      width: 520,
+      width: 620,
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               widget.spanish
-                  ? 'Selecciona un menú principal y los menús secundarios disponibles en este salón.'
-                  : 'Choose one primary menu and the secondary menus available in this room.',
+                  ? 'Escoge el menú principal y, si lo necesitas, menús secundarios con sus productos permitidos.'
+                  : 'Choose the primary menu and, if needed, secondary menus with their allowed products.',
               style: const TextStyle(color: Color(0xFF70757A)),
             ),
             const SizedBox(height: 16),
-            for (final menu in widget.menus)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: DropdownButtonFormField<_RoomMenuMode>(
-                  key: ValueKey('room-menu-${menu.id}'),
-                  initialValue: _modes[menu.id],
-                  decoration: InputDecoration(
-                    labelText: menu.name,
-                    prefixIcon: const Icon(Icons.menu_book_outlined),
-                  ),
-                  items: [
-                    DropdownMenuItem(
-                      value: _RoomMenuMode.none,
-                      child: Text(
-                        widget.spanish ? 'No asignado' : 'Not assigned',
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: _RoomMenuMode.primary,
-                      child: Text(
-                        widget.spanish ? 'Menú principal' : 'Primary menu',
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: _RoomMenuMode.secondary,
-                      child: Text(
-                        widget.spanish ? 'Menú secundario' : 'Secondary menu',
-                      ),
-                    ),
-                  ],
-                  onChanged: (mode) {
-                    if (mode != null) _setMode(menu.id, mode);
-                  },
+            DropdownButtonFormField<int>(
+              key: const ValueKey('room-primary-menu'),
+              initialValue: _primaryMenuId,
+              decoration: InputDecoration(
+                labelText: widget.spanish
+                    ? 'Escoger menú principal'
+                    : 'Choose primary menu',
+                prefixIcon: const Icon(Icons.menu_book_outlined),
+              ),
+              items: [
+                for (final menu in widget.menus)
+                  DropdownMenuItem(value: menu.id, child: Text(menu.name)),
+              ],
+              onChanged: (menuId) => setState(() {
+                _primaryMenuId = menuId;
+                if (menuId != null) _secondaryMenuIds.remove(menuId);
+              }),
+            ),
+            const SizedBox(height: 22),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                widget.spanish ? 'Menús secundarios' : 'Secondary menus',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
+            ),
+            const SizedBox(height: 8),
+            for (final menu in widget.menus)
+              if (menu.id != _primaryMenuId)
+                _SecondaryMenuOption(
+                  spanish: widget.spanish,
+                  roomId: widget.room.id,
+                  menu: menu,
+                  selected: _secondaryMenuIds.contains(menu.id),
+                  selectedProductIds: _secondaryProductIds[menu.id]!,
+                  onSelected: (selected) => _toggleSecondary(menu, selected),
+                  onProductChanged: (productId, selected) => setState(() {
+                    if (selected) {
+                      _secondaryProductIds[menu.id]!.add(productId);
+                    } else {
+                      _secondaryProductIds[menu.id]!.remove(productId);
+                    }
+                  }),
+                ),
           ],
         ),
       ),
@@ -525,19 +545,134 @@ class _RoomMenusDialogState extends State<_RoomMenusDialog> {
       ),
       FilledButton.icon(
         key: const ValueKey('save-room-menus'),
-        onPressed: () => Navigator.pop(context, [
-          for (final menu in widget.menus)
-            if (_modes[menu.id] != _RoomMenuMode.none)
-              RoomMenuAssignment(
-                menuId: menu.id,
-                isPrimary: _modes[menu.id] == _RoomMenuMode.primary,
+        onPressed: !_canSave
+            ? null
+            : () => Navigator.pop(
+                context,
+                RoomMenuConfiguration(
+                  primaryMenuId: _primaryMenuId!,
+                  secondaryMenus: [
+                    for (final menuId in _secondaryMenuIds)
+                      SecondaryRoomMenuSelection(
+                        menuId: menuId,
+                        productIds: _secondaryProductIds[menuId]!.toList(),
+                      ),
+                  ],
+                ),
               ),
-        ]),
         icon: const Icon(Icons.save_outlined),
         label: Text(widget.spanish ? 'Guardar' : 'Save'),
       ),
     ],
   );
+}
+
+class _SecondaryMenuOption extends StatelessWidget {
+  const _SecondaryMenuOption({
+    required this.spanish,
+    required this.roomId,
+    required this.menu,
+    required this.selected,
+    required this.selectedProductIds,
+    required this.onSelected,
+    required this.onProductChanged,
+  });
+
+  final bool spanish;
+  final int roomId;
+  final RestaurantMenu menu;
+  final bool selected;
+  final Set<int> selectedProductIds;
+  final ValueChanged<bool> onSelected;
+  final void Function(int productId, bool selected) onProductChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = _menuProductChoices(menu);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: const Color(0xFFF7F8F9),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE2E5E8)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            CheckboxListTile(
+              key: ValueKey('secondary-menu-${menu.id}'),
+              value: selected,
+              onChanged: choices.isEmpty
+                  ? null
+                  : (value) => onSelected(value ?? false),
+              title: Text(menu.name),
+              subtitle: choices.isEmpty
+                  ? Text(spanish ? 'No tiene productos' : 'No products')
+                  : Text(
+                      spanish
+                          ? '${selectedProductIds.length} productos permitidos'
+                          : '${selectedProductIds.length} allowed products',
+                    ),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            if (selected) ...[
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    spanish
+                        ? 'Escoge los productos disponibles:'
+                        : 'Choose the available products:',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              for (final choice in choices)
+                CheckboxListTile(
+                  key: ValueKey(
+                    'secondary-product-${menu.id}-${choice.product.id}',
+                  ),
+                  dense: true,
+                  value: selectedProductIds.contains(choice.product.id),
+                  onChanged: (value) =>
+                      onProductChanged(choice.product.id, value ?? false),
+                  title: Text(choice.product.name),
+                  subtitle: Text(choice.categoryPath),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuProductChoice {
+  const _MenuProductChoice(this.product, this.categoryPath);
+  final CatalogProduct product;
+  final String categoryPath;
+}
+
+List<_MenuProductChoice> _menuProductChoices(RestaurantMenu menu) {
+  final result = <_MenuProductChoice>[];
+  void visit(MenuCategory category, List<String> parents) {
+    final path = [...parents, category.name];
+    for (final product in category.products.where((item) => item.isActive)) {
+      result.add(_MenuProductChoice(product, path.join(' › ')));
+    }
+    for (final child in category.subcategories) {
+      visit(child, path);
+    }
+  }
+
+  for (final category in menu.categories) {
+    visit(category, const []);
+  }
+  return result;
 }
 
 class _Statistic extends StatelessWidget {

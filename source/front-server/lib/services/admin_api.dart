@@ -336,16 +336,17 @@ Future<RestaurantMenu> createMenu({
 Future<void> updateRoomMenus({
   required String token,
   required int roomId,
-  required List<RoomMenuAssignment> assignments,
+  required RoomMenuConfiguration configuration,
 }) async {
   await _catalogRequest(
     token: token,
     method: 'PUT',
     path: '/api/admin/rooms/$roomId/menus',
     payload: {
-      'assignments': [
-        for (final assignment in assignments)
-          {'menuId': assignment.menuId, 'isPrimary': assignment.isPrimary},
+      'primaryMenuId': configuration.primaryMenuId,
+      'secondaryMenus': [
+        for (final selection in configuration.secondaryMenus)
+          {'menuId': selection.menuId, 'productIds': selection.productIds},
       ],
     },
   );
