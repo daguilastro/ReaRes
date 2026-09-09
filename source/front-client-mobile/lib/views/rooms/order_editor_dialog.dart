@@ -178,9 +178,9 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         ),
         IconButton(
           key: const ValueKey('close-order-editor'),
-          tooltip: _es ? 'Atrás' : 'Back',
-          onPressed: _saving ? null : _goBack,
-          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: _es ? 'Cerrar pedido' : 'Close order',
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          icon: const Icon(Icons.close_rounded),
         ),
       ],
     ),
@@ -618,12 +618,23 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   List<_ProductSearchResult> _searchResults() {
     final query = _normalizeSearchText(_searchQuery.trim());
     if (query.isEmpty) return const [];
+    final tokens = query
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toSet()
+        .toList();
     final results = <_ProductSearchResult>[];
     for (final product in _products) {
       final category = _searchCategoryLabel(product.id) ?? '';
       final productName = _normalizeSearchText(product.name);
       final categoryName = _normalizeSearchText(category);
-      final score = _matchScore(productName, categoryName, query);
+      final scores = [
+        for (final token in tokens)
+          _tokenMatchScore(productName, categoryName, token),
+      ];
+      final score = scores.any((value) => value == null)
+          ? null
+          : scores.whereType<int>().fold<int>(0, (sum, value) => sum + value);
       if (score != null) {
         results.add(
           _ProductSearchResult(
@@ -653,24 +664,29 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       .replaceAll(RegExp('[úùüû]'), 'u')
       .replaceAll('ñ', 'n');
 
-  int? _matchScore(String product, String category, String query) {
-    if (product == query) return 0;
-    if (product.startsWith(query)) return 10 + product.length - query.length;
-    final productIndex = product.indexOf(query);
+  int? _tokenMatchScore(String product, String category, String token) {
+    final productWords = product.split(RegExp(r'\s+'));
+    final categoryWords = category.split(RegExp(r'[^a-z0-9]+'));
+    if (product == token) return 0;
+    if (productWords.contains(token)) return 5;
+    if (product.startsWith(token)) return 10 + product.length - token.length;
+    final productIndex = product.indexOf(token);
     if (productIndex >= 0) return 30 + productIndex;
-    if (category.startsWith(query)) return 60 + category.length - query.length;
-    final categoryIndex = category.indexOf(query);
-    if (categoryIndex >= 0) return 90 + categoryIndex;
+    if (category == token) return 35;
+    if (categoryWords.contains(token)) return 40;
+    if (category.startsWith(token)) return 50 + category.length - token.length;
+    final categoryIndex = category.indexOf(token);
+    if (categoryIndex >= 0) return 70 + categoryIndex;
     final combined = '$product $category';
     var cursor = 0;
     var gaps = 0;
-    for (final codeUnit in query.codeUnits) {
+    for (final codeUnit in token.codeUnits) {
       final index = combined.indexOf(String.fromCharCode(codeUnit), cursor);
       if (index < 0) return null;
       gaps += index - cursor;
       cursor = index + 1;
     }
-    return 140 + gaps;
+    return 110 + gaps;
   }
 
   Widget _catalog() {
@@ -766,20 +782,10 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             ),
             itemBuilder: (_, index) {
               final category = roots[index];
-              final duplicateName =
-                  roots
-                      .where(
-                        (candidate) =>
-                            candidate.name.toLowerCase() ==
-                            category.name.toLowerCase(),
-                      )
-                      .length >
-                  1;
               return _CategoryButton(
                 key: ValueKey('order-category-${category.id}'),
                 category: category,
                 square: true,
-                showIdentifier: duplicateName,
                 onTap: () => setState(() => _categoryId = category.id),
               );
             },
@@ -818,15 +824,6 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
             _CategoryButton(
               key: ValueKey('order-category-${children[index].id}'),
               category: children[index],
-              showIdentifier:
-                  children
-                      .where(
-                        (candidate) =>
-                            candidate.name.toLowerCase() ==
-                            children[index].name.toLowerCase(),
-                      )
-                      .length >
-                  1,
               onTap: () => setState(() => _categoryId = children[index].id),
             ),
             if (index < children.length - 1) const SizedBox(height: 10),
@@ -836,8 +833,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         for (final product in products)
           _productRow(
             product,
-            categoryLabel:
-                '${_categoryPathForProduct(product.id)} · #${current.id}',
+            categoryLabel: _categoryPathForProduct(product.id),
           ),
       ],
     );
@@ -1543,12 +1539,10 @@ class _CategoryButton extends StatelessWidget {
     required this.category,
     required this.onTap,
     this.square = false,
-    this.showIdentifier = false,
   });
   final ClientMenuCategory category;
   final VoidCallback onTap;
   final bool square;
-  final bool showIdentifier;
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
@@ -1597,15 +1591,6 @@ class _CategoryButton extends StatelessWidget {
                             height: 1.15,
                           ),
                         ),
-                        if (showIdentifier)
-                          Text(
-                            '#${category.id}',
-                            style: const TextStyle(
-                              color: Color(0xFF71859B),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -1638,15 +1623,6 @@ class _CategoryButton extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        if (showIdentifier)
-                          Text(
-                            '#${category.id}',
-                            style: const TextStyle(
-                              color: Color(0xFF71859B),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
                       ],
                     ),
                   ),

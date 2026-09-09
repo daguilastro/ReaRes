@@ -343,12 +343,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                             ],
                           ),
                         ),
-                        if (MediaQuery.sizeOf(context).width >= 720)
-                          Positioned(
-                            right: 16,
-                            top: 16,
-                            child: _roomActiveTotal(),
-                          ),
+                        Positioned(
+                          right: 16,
+                          top: 16,
+                          child: _roomActiveTotal(),
+                        ),
                         Positioned(
                           left: 16,
                           right: 16,
@@ -386,40 +385,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.point_of_sale_outlined,
-              size: 20,
-              color: Color(0xFF71859B),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.spanish
-                      ? 'Total activo del salón'
-                      : 'Active room total',
-                  style: const TextStyle(
-                    color: Color(0xFF73777C),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  formatPesos(total),
-                  style: const TextStyle(
-                    color: Color(0xFF303840),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        child: Text(
+          formatPesos(total),
+          style: const TextStyle(
+            color: Color(0xFF303840),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
     );

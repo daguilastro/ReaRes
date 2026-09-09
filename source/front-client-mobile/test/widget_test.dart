@@ -721,6 +721,92 @@ void main() {
     expect(submitted![2].parentIndex, 0);
   });
 
+  testWidgets('order search combines unordered product and category terms', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OrderEditorDialog(
+          spanish: true,
+          tableLabel: '2',
+          menus: const [
+            ClientRoomMenu(
+              id: 1,
+              name: 'Principal',
+              isPrimary: true,
+              categories: [
+                ClientMenuCategory(
+                  id: 10,
+                  name: 'Perros',
+                  parentCategoryId: null,
+                  isSpecial: false,
+                  products: [],
+                ),
+                ClientMenuCategory(
+                  id: 11,
+                  name: 'Especiales',
+                  parentCategoryId: 10,
+                  isSpecial: false,
+                  products: [],
+                ),
+                ClientMenuCategory(
+                  id: 12,
+                  name: 'Gigante',
+                  parentCategoryId: 11,
+                  isSpecial: false,
+                  products: [
+                    ClientMenuProduct(
+                      id: 80,
+                      name: 'Carne',
+                      description: null,
+                      value: 20500,
+                      ingredients: [],
+                    ),
+                  ],
+                ),
+                ClientMenuCategory(
+                  id: 13,
+                  name: 'Hamburguesas',
+                  parentCategoryId: null,
+                  isSpecial: false,
+                  products: [
+                    ClientMenuProduct(
+                      id: 81,
+                      name: 'Carne',
+                      description: null,
+                      value: 18000,
+                      ingredients: [],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+          existingOrder: null,
+          onSubmit: (_, _) async {},
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('order-product-search')),
+      'carne gigante',
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('order-product-80')), findsOneWidget);
+    expect(find.byKey(const ValueKey('order-product-81')), findsNothing);
+    expect(find.text('Perros › Especiales › Gigante'), findsOneWidget);
+    expect(find.textContaining('#'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('order-product-search')),
+      'gigante carne',
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('order-product-80')), findsOneWidget);
+    expect(find.byKey(const ValueKey('order-product-81')), findsNothing);
+  });
+
   testWidgets('order editor removes only undelivered units', (tester) async {
     List<OrderItemWrite>? submitted;
     const product = ClientMenuProduct(
