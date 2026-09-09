@@ -18,7 +18,7 @@ class BillOrderDialog extends StatefulWidget {
   final String tableLabel;
   final ClientOrder order;
   final Map<int, ClientMenuProduct> productsById;
-  final Future<void> Function()? onBill;
+  final Future<void> Function(ClientPaymentMethod paymentMethod)? onBill;
   final bool readOnly;
 
   @override
@@ -28,6 +28,7 @@ class BillOrderDialog extends StatefulWidget {
 class _BillOrderDialogState extends State<BillOrderDialog> {
   bool _billing = false;
   String? _submitError;
+  ClientPaymentMethod _paymentMethod = ClientPaymentMethod.cash;
 
   bool get _es => widget.spanish;
 
@@ -116,9 +117,8 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
       );
     }
     final rows = <Widget>[
-      for (final item in widget.order.items)
-        for (var unit = 0; unit < item.quantity; unit++)
-          _activeItem(item, unit),
+      for (final line in _groupedActiveItems())
+        _activeItem(line.item, line.quantity),
       if (widget.order.removedItems.isNotEmpty)
         Padding(
           padding: const EdgeInsets.fromLTRB(2, 12, 2, 4),
@@ -130,8 +130,8 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
             ),
           ),
         ),
-      for (final item in widget.order.removedItems)
-        for (var unit = 0; unit < item.quantity; unit++) _removedItem(item),
+      for (final line in _groupedRemovedItems())
+        _removedItem(line.item, line.quantity),
     ];
     return ListView.separated(
       padding: const EdgeInsets.all(18),
@@ -141,7 +141,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
     );
   }
 
-  Widget _activeItem(ClientOrderItem item, int unitIndex) {
+  Widget _activeItem(ClientOrderItem item, int quantity) {
     final unit = item.unitValue != 0
         ? item.unitValue
         : widget.productsById[item.productId]?.value ?? 0;
@@ -194,9 +194,9 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                         item.specifications!.trim(),
                         style: const TextStyle(color: Color(0xFF7A7D82)),
                       ),
-                    if (item.quantity > 1)
+                    if (quantity > 1)
                       Text(
-                        '${_es ? 'Unidad' : 'Unit'} ${unitIndex + 1}/${item.quantity}',
+                        '$quantity × ${formatPesos(unit)}',
                         style: const TextStyle(
                           color: Color(0xFF90949A),
                           fontSize: 12,
@@ -207,7 +207,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
               ),
               const SizedBox(width: 12),
               Text(
-                formatPesos(unit),
+                formatPesos(unit * quantity),
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ],
@@ -217,57 +217,65 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
     );
   }
 
-  Widget _removedItem(ClientRemovedOrderItem item) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xFFFFF1F0),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFF0CBC8)),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          const Icon(Icons.remove_circle_outline, color: Color(0xFFB56B65)),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.parentProductName == null ? item.name : '+ ${item.name}',
-                  style: const TextStyle(
-                    color: Color(0xFF8D6966),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (item.categoryName.isNotEmpty)
-                  Text(
-                    item.categoryName,
-                    style: const TextStyle(
-                      color: Color(0xFFA38380),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+  Widget _removedItem(ClientRemovedOrderItem item, int quantity) =>
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF1F0),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF0CBC8)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.remove_circle_outline, color: Color(0xFFB56B65)),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.parentProductName == null
+                          ? item.name
+                          : '+ ${item.name}',
+                      style: const TextStyle(
+                        color: Color(0xFF8D6966),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                if ((item.specifications ?? '').trim().isNotEmpty)
-                  Text(
-                    item.specifications!.trim(),
-                    style: const TextStyle(color: Color(0xFFA38380)),
-                  ),
-              ],
-            ),
+                    if (item.categoryName.isNotEmpty)
+                      Text(
+                        item.categoryName,
+                        style: const TextStyle(
+                          color: Color(0xFFA38380),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    if ((item.specifications ?? '').trim().isNotEmpty)
+                      Text(
+                        item.specifications!.trim(),
+                        style: const TextStyle(color: Color(0xFFA38380)),
+                      ),
+                    if (quantity > 1)
+                      Text(
+                        '$quantity × ${formatPesos(item.unitValue)}',
+                        style: const TextStyle(color: Color(0xFFA38380)),
+                      ),
+                  ],
+                ),
+              ),
+              Text(
+                formatPesos(item.unitValue * quantity),
+                style: const TextStyle(
+                  color: Color(0xFFB56B65),
+                  decoration: TextDecoration.lineThrough,
+                ),
+              ),
+            ],
           ),
-          Text(
-            formatPesos(item.unitValue),
-            style: const TextStyle(
-              color: Color(0xFFB56B65),
-              decoration: TextDecoration.lineThrough,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
 
   Widget _footer() => Padding(
     padding: const EdgeInsets.all(16),
@@ -277,6 +285,24 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
         if (_submitError != null) ...[
           Text(_submitError!, style: const TextStyle(color: Color(0xFFB64A4A))),
           const SizedBox(height: 8),
+        ],
+        if (!widget.readOnly) ...[
+          _PaymentMethodSwitch(
+            spanish: _es,
+            value: _paymentMethod,
+            onChanged: (value) => setState(() => _paymentMethod = value),
+          ),
+          const SizedBox(height: 13),
+        ] else if (widget.order.paymentMethod != null) ...[
+          Text(
+            '${_es ? 'Método de pago' : 'Payment method'}: '
+            '${_paymentLabel(widget.order.paymentMethod!)}',
+            style: const TextStyle(
+              color: Color(0xFF676B71),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
         ],
         Row(
           children: [
@@ -327,7 +353,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
       _submitError = null;
     });
     try {
-      await widget.onBill!();
+      await widget.onBill!(_paymentMethod);
       if (mounted) Navigator.pop(context);
     } on Object {
       if (!mounted) return;
@@ -340,4 +366,132 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
       if (mounted) setState(() => _billing = false);
     }
   }
+
+  String _paymentLabel(ClientPaymentMethod method) => switch (method) {
+    ClientPaymentMethod.cash => _es ? 'Efectivo' : 'Cash',
+    ClientPaymentMethod.transfer => _es ? 'Transferencia' : 'Transfer',
+    ClientPaymentMethod.card => _es ? 'Tarjeta' : 'Card',
+  };
+
+  List<_ActiveBillLine> _groupedActiveItems() {
+    final grouped = <String, _ActiveBillLine>{};
+    final parentIds = {
+      for (final item in widget.order.items)
+        if (item.parentOrderItemId != null) item.parentOrderItemId!,
+    };
+    for (final item in widget.order.items) {
+      final removed = item.removedIngredientIds.toList()..sort();
+      final signature = [
+        item.productId,
+        item.specifications ?? '',
+        removed.join(','),
+        item.parentOrderItemId ?? '',
+        item.unitValue,
+        if (parentIds.contains(item.id)) item.id,
+      ].join('|');
+      final current = grouped[signature];
+      grouped[signature] = _ActiveBillLine(
+        item,
+        (current?.quantity ?? 0) + item.quantity,
+      );
+    }
+    return grouped.values.toList();
+  }
+
+  List<_RemovedBillLine> _groupedRemovedItems() {
+    final grouped = <String, _RemovedBillLine>{};
+    for (final item in widget.order.removedItems) {
+      final signature = [
+        item.name,
+        item.categoryName,
+        item.productDescription ?? '',
+        item.specifications ?? '',
+        item.parentProductName ?? '',
+        item.unitValue,
+      ].join('|');
+      final current = grouped[signature];
+      grouped[signature] = _RemovedBillLine(
+        item,
+        (current?.quantity ?? 0) + item.quantity,
+      );
+    }
+    return grouped.values.toList();
+  }
+}
+
+class _ActiveBillLine {
+  const _ActiveBillLine(this.item, this.quantity);
+  final ClientOrderItem item;
+  final int quantity;
+}
+
+class _RemovedBillLine {
+  const _RemovedBillLine(this.item, this.quantity);
+  final ClientRemovedOrderItem item;
+  final int quantity;
+}
+
+class _PaymentMethodSwitch extends StatelessWidget {
+  const _PaymentMethodSwitch({
+    required this.spanish,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool spanish;
+  final ClientPaymentMethod value;
+  final ValueChanged<ClientPaymentMethod> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFFE9EDF1),
+    borderRadius: BorderRadius.circular(13),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      key: const ValueKey('payment-method-switch'),
+      onTap: () => onChanged(
+        ClientPaymentMethod.values[(value.index + 1) %
+            ClientPaymentMethod.values.length],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: [
+            for (final method in ClientPaymentMethod.values)
+              Expanded(
+                child: AnimatedContainer(
+                  key: ValueKey('payment-method-${method.apiValue}'),
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(
+                    color: value == method ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: value == method
+                        ? const [
+                            BoxShadow(color: Color(0x18000000), blurRadius: 7),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    switch (method) {
+                      ClientPaymentMethod.cash => spanish ? 'Efectivo' : 'Cash',
+                      ClientPaymentMethod.transfer =>
+                        spanish ? 'Transferencia' : 'Transfer',
+                      ClientPaymentMethod.card => spanish ? 'Tarjeta' : 'Card',
+                    },
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: value == method
+                          ? const Color(0xFF52677D)
+                          : const Color(0xFF7A8087),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

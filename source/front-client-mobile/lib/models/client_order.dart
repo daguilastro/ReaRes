@@ -1,3 +1,19 @@
+enum ClientPaymentMethod {
+  cash('cash'),
+  transfer('transfer'),
+  card('card');
+
+  const ClientPaymentMethod(this.apiValue);
+  final String apiValue;
+
+  static ClientPaymentMethod? fromApi(String? value) {
+    for (final method in values) {
+      if (method.apiValue == value) return method;
+    }
+    return null;
+  }
+}
+
 class ClientMenuProduct {
   const ClientMenuProduct({
     required this.id,
@@ -193,6 +209,7 @@ class ClientOrder {
     this.total = 0,
     this.createdAt,
     this.removedItems = const [],
+    this.paymentMethod,
   });
   factory ClientOrder.fromJson(Map<String, dynamic> json) => ClientOrder(
     id: json['id'] as int,
@@ -207,6 +224,9 @@ class ClientOrder {
     tableLabel: json['tableLabel'] as String? ?? '',
     total: json['total'] as int? ?? 0,
     createdAt: json['createdAt'] as String?,
+    paymentMethod: ClientPaymentMethod.fromApi(
+      json['paymentMethod'] as String?,
+    ),
     removedItems: (json['removedItems'] as List? ?? const [])
         .map(
           (value) =>
@@ -225,6 +245,7 @@ class ClientOrder {
   final int total;
   final String? createdAt;
   final List<ClientRemovedOrderItem> removedItems;
+  final ClientPaymentMethod? paymentMethod;
   bool get isExternal => externalName != null;
 }
 

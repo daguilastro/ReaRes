@@ -14,6 +14,7 @@ import 'package:restaurante_front/views/rooms/rooms_page.dart';
 import 'package:restaurante_front/views/rooms/live_room_page.dart';
 import 'package:restaurante_front/views/rooms/order_editor_dialog.dart';
 import 'package:restaurante_front/views/rooms/delivery_order_dialog.dart';
+import 'package:restaurante_front/views/rooms/bill_order_dialog.dart';
 import 'package:restaurante_front/utils/money.dart';
 
 Future<void> completeChecksImmediately() async {}
@@ -308,6 +309,7 @@ void main() {
               status: 'waiting',
               description: null,
               items: [],
+              total: 23500,
             ),
           ],
           loadMenus: ({required session, required roomId}) async {
@@ -346,6 +348,8 @@ void main() {
     expect(find.byKey(const ValueKey('live-mode-select')), findsOneWidget);
     expect(find.byKey(const ValueKey('external-orders')), findsOneWidget);
     expect(find.byKey(const ValueKey('live-table-13')), findsOneWidget);
+    expect(find.byKey(const ValueKey('active-room-total')), findsOneWidget);
+    expect(find.text(r'$23 500'), findsOneWidget);
     final toolbarCenter = tester.getCenter(
       find.byKey(const ValueKey('live-bottom-tools')),
     );
@@ -387,6 +391,79 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fit-live-room')));
     await tester.pump();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('billing cycles payment methods and groups identical products', (
+    tester,
+  ) async {
+    ClientPaymentMethod? billedWith;
+    const product = ClientOrderItem(
+      id: 1,
+      productId: 20,
+      name: 'Hamburguesa',
+      categoryName: 'Hamburguesas',
+      productDescription: null,
+      quantity: 2,
+      deliveredQuantity: 2,
+      deliveredUnitIndexes: [0, 1],
+      status: 'delivered',
+      specifications: null,
+      parentOrderItemId: null,
+      removedIngredientIds: [],
+      ingredients: [],
+      unitValue: 14000,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BillOrderDialog(
+          spanish: true,
+          tableLabel: '4',
+          order: const ClientOrder(
+            id: 9,
+            tableId: 4,
+            tableGroupId: null,
+            status: 'eating',
+            description: null,
+            items: [
+              product,
+              ClientOrderItem(
+                id: 2,
+                productId: 20,
+                name: 'Hamburguesa',
+                categoryName: 'Hamburguesas',
+                productDescription: null,
+                quantity: 1,
+                deliveredQuantity: 1,
+                deliveredUnitIndexes: [0],
+                status: 'delivered',
+                specifications: null,
+                parentOrderItemId: null,
+                removedIngredientIds: [],
+                ingredients: [],
+                unitValue: 14000,
+              ),
+            ],
+          ),
+          productsById: const {},
+          onBill: (method) async => billedWith = method,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hamburguesa'), findsOneWidget);
+    expect(find.text(r'3 × $14 000'), findsOneWidget);
+    expect(find.text(r'$42 000'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('submit-order-bill')));
+    await tester.pump();
+    expect(billedWith, ClientPaymentMethod.cash);
   });
 
   testWidgets('delivery view preserves item details and linked additions', (

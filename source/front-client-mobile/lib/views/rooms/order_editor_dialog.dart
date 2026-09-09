@@ -68,6 +68,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
           parentLineKey: parentKey,
         );
       }
+      _mergeIdenticalLines();
     }
   }
 
@@ -932,6 +933,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       final line = _lines.putIfAbsent(key, () => _DraftLine(product: product));
       line.quantity = (line.quantity + delta).clamp(0, 99);
       if (line.quantity == 0) _lines.remove(key);
+      _mergeIdenticalLines();
     });
   }
 
@@ -1301,6 +1303,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                       }
                     }
                   }
+                  _mergeIdenticalLines();
                 });
                 Navigator.pop(context);
               },
@@ -1318,6 +1321,45 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   }
 
   String _defaultKey(int productId) => 'default:$productId';
+
+  void _mergeIdenticalLines() {
+    final parentKeys = {
+      for (final line in _lines.values)
+        if (line.parentLineKey != null) line.parentLineKey!,
+    };
+    final firstBySignature = <String, String>{};
+    final duplicates = <String>[];
+    final entries = _lines.entries.toList()
+      ..sort((left, right) {
+        final leftDefault = left.key.startsWith('default:') ? 0 : 1;
+        final rightDefault = right.key.startsWith('default:') ? 0 : 1;
+        return leftDefault.compareTo(rightDefault);
+      });
+    for (final entry in entries) {
+      if (parentKeys.contains(entry.key)) continue;
+      final line = entry.value;
+      final removed = line.removedIngredientIds.toList()..sort();
+      final signature = [
+        line.product.id,
+        line.specifications,
+        removed.join(','),
+        line.parentLineKey ?? '',
+      ].join('|');
+      final firstKey = firstBySignature[signature];
+      if (firstKey == null) {
+        firstBySignature[signature] = entry.key;
+        continue;
+      }
+      final first = _lines[firstKey]!;
+      first.quantity += line.quantity;
+      first.deliveredQuantity += line.deliveredQuantity;
+      duplicates.add(entry.key);
+    }
+    for (final key in duplicates) {
+      _lines.remove(key);
+      _expandedLineKeys.remove(key);
+    }
+  }
 
   void _remember() => _undo.add({
     for (final entry in _lines.entries) entry.key: entry.value.copy(),
@@ -1398,6 +1440,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   );
 
   Future<void> _submit() async {
+    _mergeIdenticalLines();
     setState(() {
       _saving = true;
       _submitError = null;

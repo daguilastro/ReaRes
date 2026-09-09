@@ -598,10 +598,16 @@ export function createDeviceApp(options: Options = {}) {
     const orderId = readRoomId(c.req.param('orderId'));
     let body: unknown;
     try { body = await c.req.json(); } catch { return c.json({ error: 'INVALID_JSON' }, 400); }
-    const status = typeof body === 'object' && body !== null &&
-      !Array.isArray(body) ? (body as Record<string, unknown>).status : undefined;
+    const bodyObject = typeof body === 'object' && body !== null &&
+      !Array.isArray(body) ? body as Record<string, unknown> : undefined;
+    const status = bodyObject?.status;
+    const paymentMethod = bodyObject?.paymentMethod;
     if (status !== 'eating' && status !== 'closed') {
       return c.json({ error: 'INVALID_ORDER_STATUS' }, 422);
+    }
+    if (status === 'closed' && paymentMethod !== 'cash' &&
+        paymentMethod !== 'transfer' && paymentMethod !== 'card') {
+      return c.json({ error: 'INVALID_PAYMENT_METHOD' }, 422);
     }
     if (!roomId || !orderId || !employeeHasRoom(db(), session.userId, roomId)) {
       return c.json({ error: 'ORDER_NOT_FOUND' }, 404);
@@ -632,8 +638,17 @@ export function createDeviceApp(options: Options = {}) {
     let activity: ActivityEvent | undefined;
     db().exec('BEGIN IMMEDIATE');
     try {
-      db().prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?')
-        .run(status, now, orderId);
+      db().prepare(
+        `UPDATE orders SET status = ?, payment_method = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        status,
+        status === 'closed' && typeof paymentMethod === 'string'
+          ? paymentMethod
+          : null,
+        now,
+        orderId,
+      );
       const nextTableStatus = status === 'closed' ? 'available' : 'eating';
       if (order.tableId !== null) {
         updateLogicalTargetStatus(
@@ -1366,7 +1381,8 @@ function readOrder(database: DatabaseSync, orderId: number) {
     `SELECT o.id, o.table_id AS tableId, o.table_group_id AS tableGroupId,
             o.external_name AS externalName,
             o.author_id AS authorId, o.description,
-            o.status, o.created_at AS createdAt, o.updated_at AS updatedAt,
+            o.status, o.payment_method AS paymentMethod,
+            o.created_at AS createdAt, o.updated_at AS updatedAt,
             COALESCE(o.external_name, g.visible_identifier, t.identifier) AS tableLabel
      FROM orders o
      LEFT JOIN hall_tables t ON t.id = o.table_id

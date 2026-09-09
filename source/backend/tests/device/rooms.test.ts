@@ -164,9 +164,13 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   assert.equal(deliveredExternal.status, 200);
   const billedExternal = await app.request(
     `/rooms/1/orders/${external.order.id}/status`,
-    { method: 'PATCH', headers, body: JSON.stringify({ status: 'closed' }) },
+    { method: 'PATCH', headers,
+      body: JSON.stringify({ status: 'closed', paymentMethod: 'cash' }) },
   );
   assert.equal(billedExternal.status, 200);
+  assert.equal((database.prepare(
+    'SELECT payment_method AS paymentMethod FROM orders WHERE id = ?',
+  ).get(external.order.id) as { paymentMethod: string }).paymentMethod, 'cash');
 
   const transferableResponse = await app.request('/rooms/1/tables/2/orders', {
     method: 'POST', headers,
@@ -323,7 +327,8 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
   assert.equal(prematureEating.status, 409);
 
   const prematureBilling = await app.request(`/rooms/1/orders/${order.order.id}/status`, {
-    method: 'PATCH', headers, body: JSON.stringify({ status: 'closed' }),
+    method: 'PATCH', headers,
+    body: JSON.stringify({ status: 'closed', paymentMethod: 'card' }),
   });
   assert.equal(prematureBilling.status, 409);
   assert.deepEqual(await prematureBilling.json(), {
@@ -366,8 +371,8 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
 
   const todayAtTwo = new Date();
   todayAtTwo.setHours(2, 0, 0, 0);
-  database.prepare('UPDATE orders SET created_at = ? WHERE id = ?')
-    .run(todayAtTwo.toISOString(), order.order.id);
+  database.prepare('UPDATE orders SET created_at = ? WHERE id IN (?, ?)')
+    .run(todayAtTwo.toISOString(), order.order.id, external.order.id);
   const today = await app.request('/rooms/1/orders/today', { headers });
   assert.equal(today.status, 200);
   assert.equal((await today.json() as { orders: unknown[] }).orders.length, 2);

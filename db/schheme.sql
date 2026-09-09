@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS "orders" (
 	"description" TEXT,
 	"receiver" TEXT,
 	"status" TEXT NOT NULL DEFAULT 'waiting' CHECK ("status" IN ('waiting', 'eating', 'closed')),
+	"payment_method" TEXT CHECK ("payment_method" IN ('cash', 'transfer', 'card')),
 	"created_at" DATETIME NOT NULL,
 	"updated_at" DATETIME NOT NULL,
 	CHECK (("external_name" IS NULL AND "table_id" IS NOT NULL)

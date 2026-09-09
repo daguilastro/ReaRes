@@ -618,6 +618,12 @@ export function ensureOrderSchema(database: DatabaseSync): void {
       'ALTER TABLE orders ADD COLUMN table_group_id INTEGER REFERENCES table_groups(id) ON DELETE SET NULL;',
     );
   }
+  if (orderColumns.length > 0 &&
+      !orderColumns.some(({ name }) => name === 'payment_method')) {
+    database.exec(
+      "ALTER TABLE orders ADD COLUMN payment_method TEXT CHECK (payment_method IN ('cash', 'transfer', 'card'));",
+    );
+  }
   const itemColumns = database.prepare('PRAGMA table_info(order_items)').all() as Column[];
   if (itemColumns.length > 0 && !itemColumns.some(({ name }) => name === 'quantity')) {
     database.exec('ALTER TABLE order_items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0);');

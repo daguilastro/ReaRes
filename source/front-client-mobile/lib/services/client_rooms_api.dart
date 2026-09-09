@@ -201,12 +201,13 @@ Future<ClientOrder> markOrderClosed({
   required ClientSession session,
   required int roomId,
   required int orderId,
+  required ClientPaymentMethod paymentMethod,
 }) async {
   final body = await _requestJson(
     session: session,
     method: 'PATCH',
     path: '/rooms/$roomId/orders/$orderId/status',
-    payload: {'status': 'closed'},
+    payload: {'status': 'closed', 'paymentMethod': paymentMethod.apiValue},
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
 }
