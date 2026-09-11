@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "tsx source/backend/server.ts",
-    "import:com-menu": "tsx scripts/import-com-menu.ts",
+    "import:com-menu": "./scripts/import-com-menu.sh",
     "reset:history": "./scripts/reset-order-history.sh",
     "typecheck": "tsc6 --noEmit",
     "test": "tsx --test source/backend/tests/**/*.test.ts"

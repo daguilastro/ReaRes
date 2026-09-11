@@ -4,6 +4,7 @@ import { openApplicationDatabase } from '../source/backend/shared/schemaMigratio
 type ProductSeed = readonly [name: string, value: number];
 type CategorySeed = {
   readonly name: string;
+  readonly special?: boolean;
   readonly products?: readonly ProductSeed[];
   readonly children?: readonly CategorySeed[];
 };
@@ -193,6 +194,139 @@ export const comMenuCatalog: readonly CategorySeed[] = [
       ['La Vecina con todo', 29900],
     ],
   },
+  {
+    name: 'Combo',
+    special: true,
+    children: [
+      {
+        name: 'Sencillo',
+        special: true,
+        products: [
+          ['Combo sencillo · Limonada 12 oz', 8500],
+          ['Combo sencillo · Coca-Cola mini', 8500],
+          ['Combo sencillo · Quatro mini', 8500],
+          ['Combo sencillo · Coca-Cola Zero mini', 8500],
+          ['Combo sencillo · Sprite mini', 8500],
+        ],
+      },
+      {
+        name: 'Agrandado',
+        special: true,
+        products: [
+          ['Combo agrandado · Fuze Tea durazno', 12500],
+          ['Combo agrandado · Fuze Tea mango', 12500],
+          ['Combo agrandado · Fuze Tea manzanilla', 12500],
+          ['Combo agrandado · Fuze Tea limón', 12500],
+          ['Combo agrandado · Fuze Tea manzana', 12500],
+          ['Combo agrandado · Coca-Cola personal', 12500],
+          ['Combo agrandado · Quatro personal', 12500],
+          ['Combo agrandado · Coca-Cola Zero personal', 12500],
+          ['Combo agrandado · Sprite personal', 12500],
+          ['Combo agrandado · Jugo del Valle mango', 12500],
+          ['Combo agrandado · Jugo del Valle naranja', 12500],
+          ['Combo agrandado · Jugo del Valle mora', 12500],
+          ['Combo agrandado · Agua con gas', 12500],
+          ['Combo agrandado · Agua sin gas', 12500],
+          ['Combo agrandado · Cerveza Águila', 12500],
+          ['Combo agrandado · Cerveza Póker', 12500],
+          ['Combo agrandado · Cerveza Cola y Pola', 12500],
+          ['Combo agrandado · Limonada 16 oz', 12500],
+        ],
+      },
+    ],
+  },
+  {
+    name: 'Bebida',
+    special: true,
+    children: [
+      {
+        name: 'Gaseosa',
+        special: true,
+        products: [['Coca-Cola 1.5 L', 10800]],
+        children: [
+          {
+            name: 'Personal',
+            special: true,
+            products: [
+              ['Coca-Cola', 5800],
+              ['Quatro', 5800],
+              ['Coca-Cola Zero', 5800],
+              ['Sprite', 5800],
+            ],
+          },
+          {
+            name: 'Mini',
+            special: true,
+            products: [
+              ['Coca-Cola', 3500],
+              ['Quatro', 3500],
+              ['Coca-Cola Zero', 3500],
+              ['Sprite', 3500],
+            ],
+          },
+          {
+            name: 'Mediana',
+            special: true,
+            products: [['Coca-Cola', 7900]],
+          },
+        ],
+      },
+      {
+        name: 'Limonada',
+        special: true,
+        products: [
+          ['Limonada 12 oz', 3500],
+          ['Limonada 16 oz', 7900],
+        ],
+      },
+      {
+        name: 'Fuze Tea',
+        special: true,
+        products: [
+          ['Durazno', 5800],
+          ['Mango', 5800],
+          ['Manzanilla', 5800],
+          ['Limón', 5800],
+          ['Manzana', 5800],
+        ],
+      },
+      {
+        name: 'Jugo del Valle',
+        special: true,
+        products: [
+          ['Mango', 5800],
+          ['Naranja', 5800],
+          ['Mora', 5800],
+        ],
+      },
+      {
+        name: 'Agua',
+        special: true,
+        products: [
+          ['Con gas', 5800],
+          ['Sin gas', 5800],
+        ],
+      },
+      {
+        name: 'Cerveza',
+        special: true,
+        products: [
+          ['Águila', 6000],
+          ['Póker', 6000],
+          ['Cola y Pola', 6000],
+        ],
+      },
+    ],
+  },
+  {
+    name: 'Adición',
+    special: true,
+    products: [
+      ['Papa francesa', 8500],
+      ['Papa criolla', 8500],
+      ['Huevos de codorniz', 12500],
+    ],
+  },
 ];
 
 export type ComMenuImportResult = {
@@ -211,20 +345,11 @@ export function insertComMenu(
   const existing = database.prepare(
     'SELECT id FROM menu WHERE name = ? LIMIT 1',
   ).get(normalizedName) as { id: number } | undefined;
-  if (existing) {
-    const categories = Number((database.prepare(
-      'SELECT COUNT(*) AS count FROM menu_categories WHERE menu_id = ?',
-    ).get(existing.id) as { count: number }).count);
-    const products = Number((database.prepare(
-      'SELECT COUNT(*) AS count FROM products WHERE menu_id = ?',
-    ).get(existing.id) as { count: number }).count);
-    return { menuId: existing.id, categories, products, created: false };
-  }
 
   const insertCategory = database.prepare(
     `INSERT INTO menu_categories
      (menu_id, name, parent_category_id, is_special, position)
-     VALUES (?, ?, ?, 0, ?)`,
+     VALUES (?, ?, ?, ?, ?)`,
   );
   const insertProduct = database.prepare(
     `INSERT INTO products
@@ -233,14 +358,18 @@ export function insertComMenu(
   );
   const insertProductPosition = database.prepare(
     `INSERT INTO category_product_positions
-     (category_id, product_id, position) VALUES (?, ?, ?)`,
+     (category_id, product_id, position)
+     VALUES (?, ?, COALESCE((
+       SELECT MAX(position) + 1 FROM category_product_positions
+       WHERE category_id = ?
+     ), 0))`,
   );
   let categoryCount = 0;
   let productCount = 0;
 
   try {
     database.exec('BEGIN IMMEDIATE');
-    const menuId = Number(database.prepare(
+    const menuId = existing?.id ?? Number(database.prepare(
       'INSERT INTO menu (name) VALUES (?)',
     ).run(normalizedName).lastInsertRowid);
 
@@ -249,34 +378,57 @@ export function insertComMenu(
       parentCategoryId: number | null,
     ) => {
       categories.forEach((category, categoryPosition) => {
-        const categoryId = Number(insertCategory.run(
+        const existingCategory = database.prepare(
+          `SELECT id FROM menu_categories
+           WHERE menu_id = ? AND name = ?
+             AND parent_category_id IS ? AND is_special = ?
+           ORDER BY id LIMIT 1`,
+        ).get(
           menuId,
           category.name,
           parentCategoryId,
+          category.special ? 1 : 0,
+        ) as { id: number } | undefined;
+        const categoryId = existingCategory?.id ?? Number(insertCategory.run(
+          menuId,
+          category.name,
+          parentCategoryId,
+          category.special ? 1 : 0,
           categoryPosition,
         ).lastInsertRowid);
-        categoryCount++;
-        category.products?.forEach(([name, value], productPosition) => {
-          const productId = Number(insertProduct.run(
-            name,
-            value,
-            menuId,
-            categoryId,
-          ).lastInsertRowid);
-          insertProductPosition.run(categoryId, productId, productPosition);
-          productCount++;
+        category.products?.forEach(([name, value]) => {
+          const existingProduct = database.prepare(
+            `SELECT id FROM products
+             WHERE menu_id = ? AND category_id = ? AND name = ?
+             ORDER BY id LIMIT 1`,
+          ).get(menuId, categoryId, name) as { id: number } | undefined;
+          if (!existingProduct) {
+            const productId = Number(insertProduct.run(
+              name,
+              value,
+              menuId,
+              categoryId,
+            ).lastInsertRowid);
+            insertProductPosition.run(categoryId, productId, categoryId);
+          }
         });
         if (category.children) addCategories(category.children, categoryId);
       });
     };
 
     addCategories(comMenuCatalog, null);
+    categoryCount = Number((database.prepare(
+      'SELECT COUNT(*) AS count FROM menu_categories WHERE menu_id = ?',
+    ).get(menuId) as { count: number }).count);
+    productCount = Number((database.prepare(
+      'SELECT COUNT(*) AS count FROM products WHERE menu_id = ?',
+    ).get(menuId) as { count: number }).count);
     database.exec('COMMIT');
     return {
       menuId,
       categories: categoryCount,
       products: productCount,
-      created: true,
+      created: existing === undefined,
     };
   } catch (error) {
     try { database.exec('ROLLBACK'); } catch { /* No había transacción activa. */ }
@@ -290,9 +442,7 @@ if (require.main === module) {
   try {
     const result = insertComMenu(database, requestedName);
     if (!result.created) {
-      console.log(
-        `El menú "${requestedName}" ya existe; no se insertaron duplicados.`,
-      );
+      console.log(`El menú "${requestedName}" ya existía; se agregaron solamente los datos faltantes.`);
     } else {
       console.log(`Menú "${requestedName}" creado correctamente.`);
     }

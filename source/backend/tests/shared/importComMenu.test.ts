@@ -12,8 +12,8 @@ test('imports the photographed .COM catalog with nested sizes and peso values', 
   const result = insertComMenu(database);
   assert.deepEqual(result, {
     menuId: 1,
-    categories: 18,
-    products: 104,
+    categories: 32,
+    products: 155,
     created: true,
   });
   assert.deepEqual({ ...database.prepare(
@@ -34,12 +34,25 @@ test('imports the photographed .COM catalog with nested sizes and peso values', 
   assert.equal((database.prepare(
     'SELECT COUNT(*) AS count FROM product_ingredients',
   ).get() as { count: number }).count, 0);
+  assert.deepEqual({ ...database.prepare(
+    `SELECT p.name, p.value, category.name AS category,
+            category.is_special AS special
+     FROM products p JOIN menu_categories category ON category.id = p.category_id
+     WHERE p.name = 'Coca-Cola' AND category.name = 'Mini'`,
+  ).get() }, {
+    name: 'Coca-Cola', value: 3500, category: 'Mini', special: 1,
+  });
+  assert.equal((database.prepare(
+    `SELECT COUNT(*) AS count FROM products p
+     JOIN menu_categories category ON category.id = p.category_id
+     WHERE category.name = 'Agrandado'`,
+  ).get() as { count: number }).count, 18);
   assert.equal((database.prepare(
     'SELECT COUNT(*) AS count FROM menu_halls',
   ).get() as { count: number }).count, 0);
 
   const secondRun = insertComMenu(database);
   assert.equal(secondRun.created, false);
-  assert.equal(secondRun.products, 104);
+  assert.equal(secondRun.products, 155);
   database.close();
 });
