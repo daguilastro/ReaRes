@@ -11,5 +11,12 @@ if [ ! -x "$TSX" ]; then
   exit 1
 fi
 
+if [ "${1:-}" = "--yes" ]; then
+  shift
+  "$SCRIPT_DIRECTORY/clear-menus-products.sh" --yes
+else
+  "$SCRIPT_DIRECTORY/clear-menus-products.sh"
+fi
+
 cd "$PROJECT_DIRECTORY"
 exec "$TSX" scripts/import-com-menu.ts "$@"

@@ -47,6 +47,28 @@ test('imports the photographed .COM catalog with nested sizes and peso values', 
      JOIN menu_categories category ON category.id = p.category_id
      WHERE category.name = 'Agrandado'`,
   ).get() as { count: number }).count, 18);
+  assert.deepEqual(database.prepare(
+    `SELECT p.name FROM products p
+     JOIN menu_categories category ON category.id = p.category_id
+     WHERE category.name = 'Sencillo' AND category.is_special = 1
+     ORDER BY p.id`,
+  ).all().map((row) => (row as { name: string }).name), [
+    'Limonada 12 oz',
+    'Coca-Cola mini',
+    'Quatro mini',
+    'Coca-Cola Zero mini',
+    'Sprite mini',
+  ]);
+  assert.equal((database.prepare(
+    `SELECT COUNT(*) AS count FROM products
+     WHERE name LIKE 'Combo sencillo%' OR name LIKE 'Combo agrandado%'`,
+  ).get() as { count: number }).count, 0);
+  assert.deepEqual(database.prepare(
+    `SELECT p.name FROM products p
+     JOIN menu_categories category ON category.id = p.category_id
+     WHERE category.name = 'Limonada'
+     ORDER BY p.id`,
+  ).all().map((row) => (row as { name: string }).name), ['12 oz', '16 oz']);
   assert.equal((database.prepare(
     'SELECT COUNT(*) AS count FROM menu_halls',
   ).get() as { count: number }).count, 0);
