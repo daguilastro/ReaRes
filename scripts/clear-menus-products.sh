@@ -3,13 +3,10 @@
 set -eu
 
 SCRIPT_DIRECTORY=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-STATE_DIRECTORY=${XDG_STATE_HOME:-"$HOME/.local/state"}/restaurante-app
-PID_FILE="$STATE_DIRECTORY/server.pid"
 DATA_HOME=${XDG_DATA_HOME:-"$HOME/.local/share"}
 DATABASE_FILE=${RESTAURANTE_DB_FILE:-"$DATA_HOME/restaurante-app/restaurant.sqlite"}
 BACKUP_DIRECTORY=${RESTAURANTE_BACKUP_DIR:-"$DATA_HOME/restaurante-app/backups"}
 BACKUP_FILE="$BACKUP_DIRECTORY/restaurant-before-catalog-reset-$(date +%Y%m%d-%H%M%S).sqlite"
-SERVER_WAS_RUNNING=0
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
   echo "No se encontró sqlite3. En Termux instálalo con: pkg install sqlite" >&2
@@ -41,29 +38,6 @@ if [ "${1:-}" != "--yes" ]; then
     exit 0
   fi
 fi
-
-if [ -f "$PID_FILE" ]; then
-  SERVER_PID=$(sed -n '1p' "$PID_FILE")
-  case "$SERVER_PID" in
-    ''|*[!0-9]*) ;;
-    *)
-      if kill -0 "$SERVER_PID" 2>/dev/null; then
-        SERVER_WAS_RUNNING=1
-        "$SCRIPT_DIRECTORY/stop-server-background.sh"
-      fi
-      ;;
-  esac
-fi
-
-restart_server() {
-  STATUS=$?
-  trap - EXIT
-  if [ "$SERVER_WAS_RUNNING" -eq 1 ]; then
-    "$SCRIPT_DIRECTORY/start-server-background.sh" || STATUS=1
-  fi
-  exit "$STATUS"
-}
-trap restart_server EXIT
 
 mkdir -p "$BACKUP_DIRECTORY"
 sqlite3 "$DATABASE_FILE" "PRAGMA wal_checkpoint(TRUNCATE);"

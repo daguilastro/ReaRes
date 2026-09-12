@@ -35,7 +35,14 @@ typedef LoadRoomOrders =
       required ClientSession session,
       required int roomId,
     });
-typedef LoadTodayRoomOrders = LoadRoomOrders;
+typedef LoadTodayRoomOrders =
+    Future<List<ClientOrder>> Function({
+      required ClientSession session,
+      required int roomId,
+      DateTime? from,
+      DateTime? to,
+      ClientPaymentMethod? paymentMethod,
+    });
 typedef LoadRoomMenus =
     Future<List<ClientRoomMenu>> Function({
       required ClientSession session,
@@ -740,7 +747,18 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
             FadeTransition(opacity: animation, child: child),
         pageBuilder: (_, _, _) => Padding(
           padding: const EdgeInsets.all(18),
-          child: DailyOrdersDialog(spanish: widget.spanish, orders: orders),
+          child: DailyOrdersDialog(
+            spanish: widget.spanish,
+            orders: orders,
+            loadOrders: ({required from, required to, paymentMethod}) =>
+                widget.loadTodayOrders(
+                  session: widget.session,
+                  roomId: widget.room.id,
+                  from: from,
+                  to: to,
+                  paymentMethod: paymentMethod,
+                ),
+          ),
         ),
       );
     } on Object {
@@ -947,30 +965,33 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   ],
                 ),
                 child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (grouped) ...[
-                        const Icon(
-                          Icons.link,
-                          size: 14,
-                          color: Color(0xFF6D8DAC),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Flexible(
-                        child: Text(
-                          table.identifier,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: selected
-                                ? const Color(0xFF4C9EF8)
-                                : const Color(0xFF6D7075),
-                            fontWeight: FontWeight.w600,
+                  child: Transform.rotate(
+                    angle: -table.rotation - _rotation,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (grouped) ...[
+                          const Icon(
+                            Icons.link,
+                            size: 14,
+                            color: Color(0xFF6D8DAC),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Flexible(
+                          child: Text(
+                            table.identifier,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: selected
+                                  ? const Color(0xFF4C9EF8)
+                                  : const Color(0xFF6D7075),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

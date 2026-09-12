@@ -15,6 +15,7 @@ import 'package:restaurante_front/views/rooms/live_room_page.dart';
 import 'package:restaurante_front/views/rooms/order_editor_dialog.dart';
 import 'package:restaurante_front/views/rooms/delivery_order_dialog.dart';
 import 'package:restaurante_front/views/rooms/bill_order_dialog.dart';
+import 'package:restaurante_front/views/rooms/daily_orders_dialog.dart';
 import 'package:restaurante_front/utils/money.dart';
 
 Future<void> completeChecksImmediately() async {}
@@ -455,15 +456,66 @@ void main() {
     expect(find.text(r'3 × $14 000'), findsOneWidget);
     expect(find.text(r'$42 000'), findsNWidgets(2));
 
-    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.tap(find.byKey(const ValueKey('payment-method-transfer')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.tap(find.byKey(const ValueKey('payment-method-card')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('payment-method-switch')));
+    await tester.tap(find.byKey(const ValueKey('payment-method-cash')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('submit-order-bill')));
     await tester.pump();
     expect(billedWith, ClientPaymentMethod.cash);
+  });
+
+  testWidgets('daily history only displays billed orders', (tester) async {
+    ClientOrder order(
+      int id,
+      String status,
+      String label,
+      int total, {
+      ClientPaymentMethod? paymentMethod,
+    }) => ClientOrder(
+      id: id,
+      tableId: id,
+      tableGroupId: null,
+      status: status,
+      description: null,
+      items: const [],
+      tableLabel: label,
+      total: total,
+      paymentMethod: paymentMethod,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DailyOrdersDialog(
+          spanish: true,
+          orders: [
+            order(1, 'waiting', 'Pendiente', 12000),
+            order(2, 'eating', 'Comiendo', 18000),
+            order(
+              3,
+              'closed',
+              'Pagada',
+              25000,
+              paymentMethod: ClientPaymentMethod.cash,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mesa Pagada'), findsOneWidget);
+    expect(find.text('Mesa Pendiente'), findsNothing);
+    expect(find.text('Mesa Comiendo'), findsNothing);
+    expect(find.text(r'$25 000'), findsNWidgets(2));
+    expect(find.text(r'$55 000'), findsNothing);
+    expect(find.text('Efectivo'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('history-payment-transfer')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mesa Pagada'), findsNothing);
   });
 
   testWidgets('delivery view preserves item details and linked additions', (
@@ -533,7 +585,7 @@ void main() {
     );
 
     expect(find.text('Hamburguesa'), findsOneWidget);
-    expect(find.text('+ Tocineta'), findsOneWidget);
+    expect(find.text('Tocineta'), findsOneWidget);
     expect(find.text('Hamburguesas'), findsOneWidget);
     expect(find.text('Adiciones'), findsOneWidget);
     expect(find.text('Adiciones asociadas'), findsOneWidget);
@@ -681,6 +733,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('order-product-20')));
     await tester.pumpAndSettle();
     expect(find.text('Hamburguesa'), findsWidgets);
+    final specialSearch = find.byKey(const ValueKey('special-product-search'));
+    expect(specialSearch, findsOneWidget);
+    await tester.enterText(specialSearch, 'queso');
+    await tester.pumpAndSettle();
+    expect(find.text('Queso extra'), findsOneWidget);
+    expect(find.byKey(const ValueKey('special-category-11')), findsNothing);
+    await tester.enterText(specialSearch, '');
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('special-category-11')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('special-subcategory-13')));
@@ -712,13 +772,13 @@ void main() {
     expect(submitted, hasLength(3));
     expect(submitted![0].productId, 20);
     expect(submitted![0].quantity, 1);
-    expect(submitted![1].productId, 20);
+    expect(submitted![1].productId, 22);
     expect(submitted![1].quantity, 1);
-    expect(submitted![1].specifications, isEmpty);
-    expect(submitted![1].removedIngredientIds, isEmpty);
-    expect(submitted![2].productId, 22);
+    expect(submitted![1].parentIndex, 0);
+    expect(submitted![2].productId, 20);
     expect(submitted![2].quantity, 1);
-    expect(submitted![2].parentIndex, 0);
+    expect(submitted![2].specifications, isEmpty);
+    expect(submitted![2].removedIngredientIds, isEmpty);
   });
 
   testWidgets('order search combines unordered product and category terms', (

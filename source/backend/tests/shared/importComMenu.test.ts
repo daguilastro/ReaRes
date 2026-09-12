@@ -12,8 +12,8 @@ test('imports the photographed .COM catalog with nested sizes and peso values', 
   const result = insertComMenu(database);
   assert.deepEqual(result, {
     menuId: 1,
-    categories: 32,
-    products: 155,
+    categories: 33,
+    products: 165,
     created: true,
   });
   assert.deepEqual({ ...database.prepare(
@@ -72,9 +72,15 @@ test('imports the photographed .COM catalog with nested sizes and peso values', 
   assert.equal((database.prepare(
     'SELECT COUNT(*) AS count FROM menu_halls',
   ).get() as { count: number }).count, 0);
+  assert.deepEqual({ ...database.prepare(
+    `SELECT p.value, category.is_special AS special
+     FROM products p JOIN menu_categories category ON category.id = p.category_id
+     WHERE p.name = 'Hamburguesa crunchy tocineta · papas mixtas · limonada 12 oz'
+       AND category.name = 'Promociones'`,
+  ).get() }, { value: 15800, special: 1 });
 
   const secondRun = insertComMenu(database);
   assert.equal(secondRun.created, false);
-  assert.equal(secondRun.products, 155);
+  assert.equal(secondRun.products, 165);
   database.close();
 });

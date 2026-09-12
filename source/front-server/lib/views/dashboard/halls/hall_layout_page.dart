@@ -572,30 +572,33 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
                         ],
                       ),
                       child: Center(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_layout.groupForTable(table.id) != null) ...[
-                              const Icon(
-                                Icons.link,
-                                size: 14,
-                                color: Color(0xFF6D8DAC),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Flexible(
-                              child: Text(
-                                table.identifier,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: selected
-                                      ? const Color(0xFF4C9EF8)
-                                      : const Color(0xFF6D7075),
+                        child: Transform.rotate(
+                          angle: -table.rotation - _rotation,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_layout.groupForTable(table.id) != null) ...[
+                                const Icon(
+                                  Icons.link,
+                                  size: 14,
+                                  color: Color(0xFF6D8DAC),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  table.identifier,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: selected
+                                        ? const Color(0xFF4C9EF8)
+                                        : const Color(0xFF6D7075),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),

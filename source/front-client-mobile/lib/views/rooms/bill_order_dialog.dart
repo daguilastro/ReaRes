@@ -172,9 +172,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.parentOrderItemId == null
-                          ? item.name
-                          : '+ ${item.name}',
+                      item.name,
                       style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
@@ -235,9 +233,7 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.parentProductName == null
-                          ? item.name
-                          : '+ ${item.name}',
+                      item.name,
                       style: const TextStyle(
                         color: Color(0xFF8D6966),
                         fontWeight: FontWeight.w700,
@@ -395,7 +391,26 @@ class _BillOrderDialogState extends State<BillOrderDialog> {
         (current?.quantity ?? 0) + item.quantity,
       );
     }
-    return grouped.values.toList();
+    final lines = grouped.values.toList();
+    final itemIds = lines.map((line) => line.item.id).toSet();
+    final ordered = <_ActiveBillLine>[];
+    final addedIds = <int>{};
+    for (final parent in lines.where(
+      (line) =>
+          line.item.parentOrderItemId == null ||
+          !itemIds.contains(line.item.parentOrderItemId),
+    )) {
+      ordered.add(parent);
+      addedIds.add(parent.item.id);
+      for (final addition in lines.where(
+        (line) => line.item.parentOrderItemId == parent.item.id,
+      )) {
+        ordered.add(addition);
+        addedIds.add(addition.item.id);
+      }
+    }
+    ordered.addAll(lines.where((line) => !addedIds.contains(line.item.id)));
+    return ordered;
   }
 
   List<_RemovedBillLine> _groupedRemovedItems() {
@@ -443,55 +458,71 @@ class _PaymentMethodSwitch extends StatelessWidget {
   final ValueChanged<ClientPaymentMethod> onChanged;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFFE9EDF1),
-    borderRadius: BorderRadius.circular(13),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      key: const ValueKey('payment-method-switch'),
-      onTap: () => onChanged(
-        ClientPaymentMethod.values[(value.index + 1) %
-            ClientPaymentMethod.values.length],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Row(
+  Widget build(BuildContext context) => Container(
+    key: const ValueKey('payment-method-switch'),
+    height: 46,
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: const Color(0xFFE9EDF1),
+      borderRadius: BorderRadius.circular(13),
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final segmentWidth =
+            constraints.maxWidth / ClientPaymentMethod.values.length;
+        return Stack(
           children: [
-            for (final method in ClientPaymentMethod.values)
-              Expanded(
-                child: AnimatedContainer(
-                  key: ValueKey('payment-method-${method.apiValue}'),
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  decoration: BoxDecoration(
-                    color: value == method ? Colors.white : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: value == method
-                        ? const [
-                            BoxShadow(color: Color(0x18000000), blurRadius: 7),
-                          ]
-                        : null,
-                  ),
-                  child: Text(
-                    switch (method) {
-                      ClientPaymentMethod.cash => spanish ? 'Efectivo' : 'Cash',
-                      ClientPaymentMethod.transfer =>
-                        spanish ? 'Transferencia' : 'Transfer',
-                      ClientPaymentMethod.card => spanish ? 'Tarjeta' : 'Card',
-                    },
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: value == method
-                          ? const Color(0xFF52677D)
-                          : const Color(0xFF7A8087),
-                    ),
-                  ),
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 230),
+              curve: Curves.easeOutCubic,
+              left: segmentWidth * value.index,
+              top: 0,
+              bottom: 0,
+              width: segmentWidth,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x18000000), blurRadius: 7),
+                  ],
                 ),
               ),
+            ),
+            Row(
+              children: [
+                for (final method in ClientPaymentMethod.values)
+                  Expanded(
+                    child: InkWell(
+                      key: ValueKey('payment-method-${method.apiValue}'),
+                      onTap: () => onChanged(method),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 180),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: value == method
+                                ? const Color(0xFF52677D)
+                                : const Color(0xFF7A8087),
+                          ),
+                          child: Text(switch (method) {
+                            ClientPaymentMethod.cash =>
+                              spanish ? 'Efectivo' : 'Cash',
+                            ClientPaymentMethod.transfer =>
+                              spanish ? 'Transferencia' : 'Transfer',
+                            ClientPaymentMethod.card =>
+                              spanish ? 'Tarjeta' : 'Card',
+                          }, textAlign: TextAlign.center),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
-        ),
-      ),
+        );
+      },
     ),
   );
 }

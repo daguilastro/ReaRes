@@ -371,11 +371,40 @@ test('an employee only loads and updates layouts from assigned rooms', async () 
 
   const todayAtTwo = new Date();
   todayAtTwo.setHours(2, 0, 0, 0);
-  database.prepare('UPDATE orders SET created_at = ? WHERE id IN (?, ?)')
-    .run(todayAtTwo.toISOString(), order.order.id, external.order.id);
+  database.prepare('UPDATE orders SET created_at = ?, updated_at = ? WHERE id IN (?, ?)')
+    .run(
+      todayAtTwo.toISOString(),
+      todayAtTwo.toISOString(),
+      order.order.id,
+      external.order.id,
+    );
   const today = await app.request('/rooms/1/orders/today', { headers });
   assert.equal(today.status, 200);
-  assert.equal((await today.json() as { orders: unknown[] }).orders.length, 2);
+  const todayOrders = (await today.json() as {
+    orders: Array<{ id: number; status: string }>;
+  }).orders;
+  assert.equal(todayOrders.length, 1);
+  assert.equal(todayOrders[0].id, external.order.id);
+  assert.equal(todayOrders[0].status, 'closed');
+  assert.equal((await (await app.request(
+    '/rooms/1/orders/today?paymentMethod=transfer', { headers },
+  )).json() as { orders: unknown[] }).orders.length, 0);
+  const historyFrom = new Date(todayAtTwo);
+  historyFrom.setHours(1, 0, 0, 0);
+  const historyTo = new Date(historyFrom);
+  historyTo.setDate(historyTo.getDate() + 1);
+  const filteredHistoryPath = '/rooms/1/orders/today?'
+    + new URLSearchParams({
+      from: historyFrom.toISOString(),
+      to: historyTo.toISOString(),
+      paymentMethod: 'cash',
+    });
+  assert.equal((await (await app.request(
+    filteredHistoryPath, { headers },
+  )).json() as { orders: unknown[] }).orders.length, 1);
+  assert.equal((await app.request(
+    '/rooms/1/orders/today?from=invalid&to=invalid', { headers },
+  )).status, 422);
   assert.equal(realtimeMessages.at(-1)?.type, 'room-orders-changed');
 
   const addedItem = await app.request(`/rooms/1/orders/${order.order.id}`, {

@@ -327,6 +327,22 @@ export const comMenuCatalog: readonly CategorySeed[] = [
       ['Huevos de codorniz', 12500],
     ],
   },
+  {
+    name: 'Promociones',
+    special: true,
+    products: [
+      ['Perro sencillo · papas mixtas · limonada 12 oz', 10500],
+      ['Hamburguesa sencilla dúo', 19900],
+      ['Mini choripapa', 15500],
+      ['Mini mazorcada sencilla', 19900],
+      ['Hamburguesa doble carne · papas mixtas · limonada 12 oz', 23000],
+      ['Hamburguesa crunchy tocineta · papas mixtas · limonada 12 oz', 15800],
+      ['Sándwich BBQ costillita personal', 22500],
+      ['Sándwich BBQ costillita dúo', 39900],
+      ['Sándwich BBQ carne burger personal', 19900],
+      ['Sándwich BBQ carne burger dúo', 32900],
+    ],
+  },
 ];
 
 export type ComMenuImportResult = {

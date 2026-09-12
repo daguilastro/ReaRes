@@ -82,14 +82,24 @@ Future<List<ClientOrder>> getRoomOrders({
 Future<List<ClientOrder>> getTodayRoomOrders({
   required ClientSession session,
   required int roomId,
+  DateTime? from,
+  DateTime? to,
+  ClientPaymentMethod? paymentMethod,
 }) async {
+  final query = <String, String>{
+    if (from != null) 'from': from.toUtc().toIso8601String(),
+    if (to != null) 'to': to.toUtc().toIso8601String(),
+    if (paymentMethod != null) 'paymentMethod': paymentMethod.apiValue,
+  };
+  final suffix = query.isEmpty ? '' : '?${Uri(queryParameters: query).query}';
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms/$roomId/orders/today',
+    path: '/rooms/$roomId/orders/today$suffix',
   );
   return (body['orders'] as List)
       .map((value) => ClientOrder.fromJson(value as Map<String, dynamic>))
+      .where((order) => order.status == 'closed')
       .toList();
 }
 

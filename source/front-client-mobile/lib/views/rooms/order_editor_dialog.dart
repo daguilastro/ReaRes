@@ -187,9 +187,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   );
 
   Widget _selectedProducts() {
-    final selected = _lines.entries
-        .where((entry) => entry.value.quantity > 0)
-        .toList();
+    final selected = _orderedSelectedEntries();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -260,9 +258,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
   }
 
   Widget _expandedSelectedProducts() {
-    final selected = _lines.entries
-        .where((entry) => entry.value.quantity > 0)
-        .toList();
+    final selected = _orderedSelectedEntries();
     final total = selected.fold<int>(
       0,
       (sum, entry) => sum + entry.value.product.value * entry.value.quantity,
@@ -462,7 +458,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  special ? '+ ${line.product.name}' : line.product.name,
+                  line.product.name,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 16,
@@ -965,6 +961,8 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
         ? _lines[draftKey]!
         : _DraftLine(product: product, quantity: 1);
     final notes = TextEditingController(text: line.specifications);
+    final specialSearchController = TextEditingController();
+    var specialSearchQuery = '';
     final removed = {...line.removedIngredientIds};
     final specialCategories = _isSpecialProduct(product.id)
         ? const <ClientMenuCategory>[]
@@ -1015,6 +1013,31 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                     subtotal + (specialQuantities[product.id] ?? 0),
               ),
         );
+    List<({ClientMenuCategory category, ClientMenuProduct product})>
+    specialSearchResults() {
+      final query = _normalizeSearchText(specialSearchQuery.trim());
+      if (query.isEmpty) return const [];
+      final tokens = query.split(RegExp(r'\s+'));
+      final results =
+          <({ClientMenuCategory category, ClientMenuProduct product})>[];
+      for (final category in specialCategories) {
+        for (final special in category.products) {
+          final searchable = _normalizeSearchText(
+            '${special.name} ${_categoryPathForProduct(special.id) ?? category.name}',
+          );
+          if (tokens.every(searchable.contains)) {
+            results.add((category: category, product: special));
+          }
+        }
+      }
+      results.sort(
+        (left, right) => left.product.name.toLowerCase().compareTo(
+          right.product.name.toLowerCase(),
+        ),
+      );
+      return results;
+    }
+
     int? selectedSpecialCategoryId;
     final customizationScrollController = ScrollController();
     final specialPanelKeys = <int, GlobalKey>{};
@@ -1179,78 +1202,124 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                           : 'Customize with special categories',
                     ),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final category in specialRoots)
-                          _SpecialCategoryButton(
-                            key: ValueKey('special-category-${category.id}'),
-                            category: category,
-                            selected:
-                                selectedSpecialCategoryId == category.id ||
-                                specialCategories.any(
-                                  (candidate) =>
-                                      candidate.id ==
-                                          selectedSpecialCategoryId &&
-                                      candidate.parentCategoryId == category.id,
-                                ),
-                            quantity: categoryQuantity(category),
-                            onTap: () {
-                              final willOpen =
-                                  selectedSpecialCategoryId != category.id;
-                              modalSetState(() {
-                                selectedSpecialCategoryId = willOpen
-                                    ? category.id
-                                    : null;
-                              });
-                              if (willOpen) {
-                                revealSpecialProducts(category.id);
-                              }
-                            },
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, animation) => FadeTransition(
-                        opacity: animation,
-                        child: SizeTransition(
-                          sizeFactor: animation,
-                          alignment: Alignment.topCenter,
-                          child: child,
+                    TextField(
+                      key: const ValueKey('special-product-search'),
+                      controller: specialSearchController,
+                      onChanged: (value) => modalSetState(() {
+                        specialSearchQuery = value;
+                      }),
+                      decoration: InputDecoration(
+                        hintText: _es
+                            ? 'Buscar adiciones y productos especiales'
+                            : 'Search additions and special products',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: specialSearchQuery.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  specialSearchController.clear();
+                                  modalSetState(() => specialSearchQuery = '');
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                        filled: true,
+                        fillColor: const Color(0xFFF4F6F8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(13),
+                          borderSide: BorderSide.none,
                         ),
                       ),
-                      child: selectedSpecialCategoryId == null
-                          ? const SizedBox.shrink()
-                          : _SpecialProductsPanel(
-                              key: specialPanelKeys.putIfAbsent(
-                                selectedSpecialCategoryId!,
-                                GlobalKey.new,
-                              ),
-                              category: specialCategories.firstWhere(
-                                (item) => item.id == selectedSpecialCategoryId,
-                              ),
-                              categories: specialCategories,
-                              spanish: _es,
-                              quantities: specialQuantities,
-                              onCategorySelected: (categoryId) {
-                                modalSetState(() {
-                                  selectedSpecialCategoryId = categoryId;
-                                });
-                                revealSpecialProducts(categoryId);
-                              },
-                              onChanged: (special, delta) => modalSetState(() {
-                                specialQuantities[special.id] =
-                                    ((specialQuantities[special.id] ?? 0) +
-                                            delta)
-                                        .clamp(0, 99);
-                              }),
-                            ),
                     ),
+                    const SizedBox(height: 10),
+                    if (specialSearchQuery.trim().isNotEmpty)
+                      _SpecialSearchResults(
+                        results: specialSearchResults(),
+                        quantities: specialQuantities,
+                        spanish: _es,
+                        onChanged: (special, delta) => modalSetState(() {
+                          specialQuantities[special.id] =
+                              ((specialQuantities[special.id] ?? 0) + delta)
+                                  .clamp(0, 99);
+                        }),
+                      )
+                    else ...[
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final category in specialRoots)
+                            _SpecialCategoryButton(
+                              key: ValueKey('special-category-${category.id}'),
+                              category: category,
+                              selected:
+                                  selectedSpecialCategoryId == category.id ||
+                                  specialCategories.any(
+                                    (candidate) =>
+                                        candidate.id ==
+                                            selectedSpecialCategoryId &&
+                                        candidate.parentCategoryId ==
+                                            category.id,
+                                  ),
+                              quantity: categoryQuantity(category),
+                              onTap: () {
+                                final willOpen =
+                                    selectedSpecialCategoryId != category.id;
+                                modalSetState(() {
+                                  selectedSpecialCategoryId = willOpen
+                                      ? category.id
+                                      : null;
+                                });
+                                if (willOpen) {
+                                  revealSpecialProducts(category.id);
+                                }
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: SizeTransition(
+                            sizeFactor: animation,
+                            alignment: Alignment.topCenter,
+                            child: child,
+                          ),
+                        ),
+                        child: selectedSpecialCategoryId == null
+                            ? const SizedBox.shrink()
+                            : _SpecialProductsPanel(
+                                key: specialPanelKeys.putIfAbsent(
+                                  selectedSpecialCategoryId!,
+                                  GlobalKey.new,
+                                ),
+                                category: specialCategories.firstWhere(
+                                  (item) =>
+                                      item.id == selectedSpecialCategoryId,
+                                ),
+                                categories: specialCategories,
+                                spanish: _es,
+                                quantities: specialQuantities,
+                                onCategorySelected: (categoryId) {
+                                  modalSetState(() {
+                                    selectedSpecialCategoryId = categoryId;
+                                  });
+                                  revealSpecialProducts(categoryId);
+                                },
+                                onChanged: (special, delta) => modalSetState(
+                                  () {
+                                    specialQuantities[special.id] =
+                                        ((specialQuantities[special.id] ?? 0) +
+                                                delta)
+                                            .clamp(0, 99);
+                                  },
+                                ),
+                              ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -1313,6 +1382,7 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       customizationScrollController.dispose();
       notes.dispose();
+      specialSearchController.dispose();
     });
   }
 
@@ -1441,22 +1511,10 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
       _saving = true;
       _submitError = null;
     });
-    final normal = _lines.entries
-        .where(
-          (entry) =>
-              entry.value.parentLineKey == null && entry.value.quantity > 0,
-        )
-        .toList();
-    final specials = _lines.entries
-        .where(
-          (entry) =>
-              entry.value.parentLineKey != null && entry.value.quantity > 0,
-        )
-        .toList();
-    final ordered = [...normal, ...specials];
+    final ordered = _orderedSelectedEntries();
     final indexByLineKey = {
-      for (var index = 0; index < normal.length; index++)
-        normal[index].key: index,
+      for (var index = 0; index < ordered.length; index++)
+        ordered[index].key: index,
     };
     try {
       await widget.onSubmit(_orderDescription.text.trim(), [
@@ -1492,6 +1550,31 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  List<MapEntry<String, _DraftLine>> _orderedSelectedEntries() {
+    final selected = _lines.entries
+        .where((entry) => entry.value.quantity > 0)
+        .toList();
+    final selectedKeys = selected.map((entry) => entry.key).toSet();
+    final ordered = <MapEntry<String, _DraftLine>>[];
+    final added = <String>{};
+    for (final parent in selected.where(
+      (entry) =>
+          entry.value.parentLineKey == null ||
+          !selectedKeys.contains(entry.value.parentLineKey),
+    )) {
+      ordered.add(parent);
+      added.add(parent.key);
+      for (final addition in selected.where(
+        (entry) => entry.value.parentLineKey == parent.key,
+      )) {
+        ordered.add(addition);
+        added.add(addition.key);
+      }
+    }
+    ordered.addAll(selected.where((entry) => !added.contains(entry.key)));
+    return ordered;
   }
 }
 
@@ -1830,6 +1913,67 @@ class _SpecialProductsPanel extends StatelessWidget {
             ),
     );
   }
+}
+
+class _SpecialSearchResults extends StatelessWidget {
+  const _SpecialSearchResults({
+    required this.results,
+    required this.quantities,
+    required this.spanish,
+    required this.onChanged,
+  });
+
+  final List<({ClientMenuCategory category, ClientMenuProduct product})>
+  results;
+  final Map<int, int> quantities;
+  final bool spanish;
+  final void Function(ClientMenuProduct product, int delta) onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFDCE2E7)),
+    ),
+    child: results.isEmpty
+        ? Padding(
+            padding: const EdgeInsets.all(10),
+            child: Text(
+              spanish
+                  ? 'No se encontraron productos especiales.'
+                  : 'No special products found.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFF7A7D82)),
+            ),
+          )
+        : Column(
+            children: [
+              for (var index = 0; index < results.length; index++) ...[
+                if (index > 0) const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    results[index].category.name,
+                    style: const TextStyle(
+                      color: Color(0xFF71859B),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _SpecialProductRow(
+                  product: results[index].product,
+                  quantity: quantities[results[index].product.id] ?? 0,
+                  onChanged: (delta) =>
+                      onChanged(results[index].product, delta),
+                ),
+              ],
+            ],
+          ),
+  );
 }
 
 class _SpecialProductRow extends StatelessWidget {

@@ -317,7 +317,7 @@ class _DeliveryOrderDialogState extends State<DeliveryOrderDialog> {
                       children: [
                         Expanded(
                           child: Text(
-                            special ? '+ ${item.name}' : item.name,
+                            item.name,
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,

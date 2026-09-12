@@ -305,16 +305,42 @@ export function createDeviceApp(options: Options = {}) {
     if (!roomId || !employeeHasRoom(db(), session.userId, roomId)) {
       return c.json({ error: 'ROOM_NOT_ASSIGNED' }, 403);
     }
+    const fromQuery = c.req.query('from');
+    const toQuery = c.req.query('to');
+    const paymentMethod = c.req.query('paymentMethod');
+    if ((fromQuery === undefined) !== (toQuery === undefined) ||
+        (paymentMethod !== undefined && paymentMethod !== 'cash' &&
+          paymentMethod !== 'transfer' && paymentMethod !== 'card')) {
+      return c.json({ error: 'INVALID_HISTORY_FILTER' }, 422);
+    }
+    const from = fromQuery === undefined ? undefined : new Date(fromQuery);
+    const to = toQuery === undefined ? undefined : new Date(toQuery);
+    if ((from && Number.isNaN(from.getTime())) ||
+        (to && Number.isNaN(to.getTime())) ||
+        (from && to && from >= to)) {
+      return c.json({ error: 'INVALID_HISTORY_FILTER' }, 422);
+    }
+    const intervalSql = from && to
+      ? `AND datetime(o.updated_at) >= datetime(?)
+         AND datetime(o.updated_at) < datetime(?)`
+      : `AND datetime(o.updated_at, 'localtime') >=
+             datetime(date('now', 'localtime'), '+1 hour')
+         AND datetime(o.updated_at, 'localtime') <
+             datetime(date('now', 'localtime'), '+1 day')`;
+    const paymentSql = paymentMethod === undefined
+      ? '' : 'AND o.payment_method = ?';
+    const parameters: Array<string | number> = [roomId];
+    if (from && to) parameters.push(from.toISOString(), to.toISOString());
+    if (paymentMethod !== undefined) parameters.push(paymentMethod);
     const ids = db().prepare(
       `SELECT o.id FROM orders o
        LEFT JOIN hall_tables t ON t.id = o.table_id
        WHERE COALESCE(o.hall_id, t.hall_id) = ?
-         AND datetime(o.created_at, 'localtime') >=
-             datetime(date('now', 'localtime'), '+1 hour')
-         AND datetime(o.created_at, 'localtime') <
-             datetime(date('now', 'localtime'), '+1 day')
-       ORDER BY o.created_at DESC`,
-    ).all(roomId) as Array<{ id: number }>;
+         AND o.status = 'closed'
+         ${intervalSql}
+         ${paymentSql}
+       ORDER BY o.updated_at DESC`,
+    ).all(...parameters) as Array<{ id: number }>;
     const orders = ids.map(({ id }) => readOrder(db(), id));
     return c.json({
       orders,
