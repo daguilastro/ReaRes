@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../services/admin_api.dart';
+import '../../../services/admin_realtime.dart';
 import 'room_layout_controller.dart';
 import 'room_layout_models.dart';
 
@@ -68,7 +69,8 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
   bool _desktopTableMoved = false;
   _CopiedLayoutObject? _copiedObject;
   Offset? _lastPointerPosition;
-  StreamSubscription<AdminActivity>? _activitySubscription;
+  StreamSubscription<AdminRealtimeMessage>? _realtimeSubscription;
+  AdminRealtimeService? _realtime;
 
   bool get _es => widget.spanish;
   bool get _editing => widget.isAdmin && _mode == HallViewMode.edit;
@@ -81,15 +83,18 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
   void initState() {
     super.initState();
     if (!widget.isAdmin) _mode = HallViewMode.live;
-    _activitySubscription = watchAdminActivities(widget.token).listen((
-      activity,
-    ) {
-      if (activity.roomId == widget.roomId &&
-          _mode == HallViewMode.live &&
-          !_layout.dirty) {
-        _load();
-      }
-    }, onError: (_) {});
+    if (widget.loadLayout == getRoomLayout && widget.token.isNotEmpty) {
+      _realtime = AdminRealtimeService(widget.token);
+      _realtimeSubscription = _realtime!.messages.listen((message) {
+        if (message.hallId == widget.roomId &&
+            message.type == 'hall.layout.changed' &&
+            _mode == HallViewMode.live &&
+            !_layout.dirty) {
+          _load();
+        }
+      }, onError: (_) {});
+      unawaited(_realtime!.start());
+    }
     _load();
   }
 
@@ -108,7 +113,8 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
 
   @override
   void dispose() {
-    _activitySubscription?.cancel();
+    _realtimeSubscription?.cancel();
+    unawaited(_realtime?.dispose());
     _camera.dispose();
     _layout.dispose();
     super.dispose();
@@ -844,7 +850,9 @@ class _HallLayoutPageState extends State<HallLayoutPage> {
         ],
       ),
     );
-    controller.dispose();
+    // showDialog devuelve el resultado al comenzar la animación de salida.
+    // El TextField todavía usa su controller hasta que la ruta desaparece.
+    Future<void>.delayed(const Duration(milliseconds: 400), controller.dispose);
     if (name != null && mounted) _layout.groupSelected(identifier: name);
   }
 

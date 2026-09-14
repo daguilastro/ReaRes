@@ -16,7 +16,7 @@ class PairedServerClient {
   final int port;
 
   Uri uri(String path) =>
-      Uri(scheme: 'https', host: host, port: port, path: path);
+      Uri(scheme: 'https', host: host, port: port, path: '/').resolve(path);
 
   void close() => http.close(force: true);
 }

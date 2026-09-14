@@ -91,16 +91,17 @@ class LiveRoomTable {
   final double rotation;
   final String status;
 
-  LiveRoomTable copyWith({double? x, double? y}) => LiveRoomTable(
-    id: id,
-    identifier: identifier,
-    x: x ?? this.x,
-    y: y ?? this.y,
-    width: width,
-    height: height,
-    rotation: rotation,
-    status: status,
-  );
+  LiveRoomTable copyWith({double? x, double? y, String? status}) =>
+      LiveRoomTable(
+        id: id,
+        identifier: identifier,
+        x: x ?? this.x,
+        y: y ?? this.y,
+        width: width,
+        height: height,
+        rotation: rotation,
+        status: status ?? this.status,
+      );
 }
 
 class LiveRoomWall {

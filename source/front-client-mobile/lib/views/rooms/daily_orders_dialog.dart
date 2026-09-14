@@ -29,8 +29,8 @@ class DailyOrdersDialog extends StatefulWidget {
 
 class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
   late List<ClientOrder> _orders;
-  late DateTime _fromDay;
-  late DateTime _toDay;
+  int _fromHour = 1;
+  int _toHour = 24;
   ClientPaymentMethod? _paymentMethod;
   bool _loading = false;
   String? _error;
@@ -41,9 +41,6 @@ class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
   void initState() {
     super.initState();
     _orders = widget.orders;
-    final now = DateTime.now();
-    _fromDay = DateTime(now.year, now.month, now.day);
-    _toDay = _fromDay;
   }
 
   @override
@@ -113,19 +110,61 @@ class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.schedule_rounded,
+                              size: 19,
+                              color: Color(0xFF71859B),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              spanish ? 'Intervalo horario' : 'Hourly range',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${_hourLabel(_fromHour)} – ${_hourLabel(_toHour, end: true)}',
+                              style: const TextStyle(
+                                color: Color(0xFF52677D),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        RangeSlider(
+                          key: const ValueKey('sales-history-hour-range'),
+                          min: 1,
+                          max: 24,
+                          divisions: 23,
+                          values: RangeValues(
+                            _fromHour.toDouble(),
+                            _toHour.toDouble(),
+                          ),
+                          labels: RangeLabels(
+                            _hourLabel(_fromHour),
+                            _hourLabel(_toHour, end: true),
+                          ),
+                          onChanged: _loading
+                              ? null
+                              : (range) {
+                                  final from = range.start.round();
+                                  final to = range.end.round();
+                                  if (to - from < 1) return;
+                                  setState(() {
+                                    _fromHour = from;
+                                    _toHour = to;
+                                  });
+                                },
+                          onChangeEnd: _loading ? null : (_) => _reload(),
+                        ),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            OutlinedButton.icon(
-                              key: const ValueKey('sales-history-period'),
-                              onPressed: _loading ? null : _selectPeriod,
-                              icon: const Icon(Icons.date_range_outlined),
-                              label: Text(
-                                '${_shortDate(_fromDay)} – ${_shortDate(_toDay)}',
-                              ),
-                            ),
                             _paymentChip(null),
                             for (final method in ClientPaymentMethod.values)
                               _paymentChip(method),
@@ -239,32 +278,6 @@ class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
           },
   );
 
-  Future<void> _selectPeriod() async {
-    final selected = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 366)),
-      initialDateRange: DateTimeRange(start: _fromDay, end: _toDay),
-      helpText: spanish ? 'Intervalo de cobro' : 'Billing period',
-      cancelText: spanish ? 'Cancelar' : 'Cancel',
-      confirmText: spanish ? 'Aplicar' : 'Apply',
-    );
-    if (selected == null || !mounted) return;
-    setState(() {
-      _fromDay = DateTime(
-        selected.start.year,
-        selected.start.month,
-        selected.start.day,
-      );
-      _toDay = DateTime(
-        selected.end.year,
-        selected.end.month,
-        selected.end.day,
-      );
-    });
-    await _reload();
-  }
-
   Future<void> _reload() async {
     final loader = widget.loadOrders;
     if (loader == null) {
@@ -276,9 +289,11 @@ class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
       _error = null;
     });
     try {
-      final from = DateTime(_fromDay.year, _fromDay.month, _fromDay.day, 1);
-      final dayAfterEnd = _toDay.add(const Duration(days: 1));
-      final to = DateTime(dayAfterEnd.year, dayAfterEnd.month, dayAfterEnd.day);
+      final today = DateTime.now();
+      final from = DateTime(today.year, today.month, today.day, _fromHour);
+      final to = _toHour == 24
+          ? DateTime(today.year, today.month, today.day + 1)
+          : DateTime(today.year, today.month, today.day, _toHour);
       final orders = await loader(
         from: from,
         to: to,
@@ -298,14 +313,14 @@ class _DailyOrdersDialogState extends State<DailyOrdersDialog> {
     }
   }
 
-  String _periodLabel() => _fromDay == _toDay
-      ? '${spanish ? 'Cobrado el' : 'Billed on'} ${_shortDate(_fromDay)}'
-      : '${spanish ? 'Cobrado entre' : 'Billed from'} '
-            '${_shortDate(_fromDay)} ${spanish ? 'y' : 'to'} ${_shortDate(_toDay)}';
+  String _periodLabel() =>
+      '${spanish ? 'Hoy' : 'Today'} · ${_hourLabel(_fromHour)} – '
+      '${_hourLabel(_toHour, end: true)}';
 
-  String _shortDate(DateTime value) =>
-      '${value.day.toString().padLeft(2, '0')}/'
-      '${value.month.toString().padLeft(2, '0')}/${value.year}';
+  String _hourLabel(int hour, {bool end = false}) {
+    if (end && hour == 24) return '23:59';
+    return '${hour.toString().padLeft(2, '0')}:00';
+  }
 
   String _paymentLabel(ClientPaymentMethod method) => switch (method) {
     ClientPaymentMethod.cash => spanish ? 'Efectivo' : 'Cash',

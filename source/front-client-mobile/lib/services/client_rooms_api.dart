@@ -4,7 +4,7 @@ import 'dart:io';
 import '../models/client_room.dart';
 import '../models/client_user.dart';
 import '../models/client_order.dart';
-import 'paired_server_client.dart';
+import 'cloud_api.dart';
 
 class ClientRoomsException implements Exception {
   const ClientRoomsException(this.code);
@@ -15,12 +15,12 @@ Future<List<ClientRoomSummary>> getAssignedRooms(ClientSession session) async {
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms',
+    path: '/api/v1/halls',
   );
-  if (body['rooms'] is! List) {
+  if (body['halls'] is! List) {
     throw const ClientRoomsException('INVALID_RESPONSE');
   }
-  return (body['rooms'] as List)
+  return (body['halls'] as List)
       .map((value) => ClientRoomSummary.fromJson(value as Map<String, dynamic>))
       .toList();
 }
@@ -32,7 +32,7 @@ Future<LiveRoomLayout> getLiveRoomLayout({
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms/$roomId/layout',
+    path: '/api/v1/halls/$roomId/layout',
   );
   return LiveRoomLayout.fromJson(body);
 }
@@ -45,7 +45,7 @@ Future<LiveRoomLayout> saveLiveRoomLayout({
   final body = await _requestJson(
     session: session,
     method: 'PUT',
-    path: '/rooms/$roomId/live-layout',
+    path: '/api/v1/halls/$roomId/live-layout',
     payload: layout.toLiveJson(),
   );
   return LiveRoomLayout.fromJson(body);
@@ -58,7 +58,7 @@ Future<List<ClientRoomMenu>> getRoomMenus({
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms/$roomId/menus',
+    path: '/api/v1/halls/$roomId/menus',
   );
   return (body['menus'] as List)
       .map((value) => ClientRoomMenu.fromJson(value as Map<String, dynamic>))
@@ -72,7 +72,7 @@ Future<List<ClientOrder>> getRoomOrders({
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms/$roomId/orders',
+    path: '/api/v1/halls/$roomId/orders',
   );
   return (body['orders'] as List)
       .map((value) => ClientOrder.fromJson(value as Map<String, dynamic>))
@@ -95,7 +95,7 @@ Future<List<ClientOrder>> getTodayRoomOrders({
   final body = await _requestJson(
     session: session,
     method: 'GET',
-    path: '/rooms/$roomId/orders/today$suffix',
+    path: '/api/v1/halls/$roomId/orders/today$suffix',
   );
   return (body['orders'] as List)
       .map((value) => ClientOrder.fromJson(value as Map<String, dynamic>))
@@ -116,8 +116,8 @@ Future<void> saveTableOrder({
     session: session,
     method: creating ? 'POST' : 'PUT',
     path: creating
-        ? '/rooms/$roomId/tables/$tableId/orders'
-        : '/rooms/$roomId/orders/$orderId',
+        ? '/api/v1/halls/$roomId/tables/$tableId/orders'
+        : '/api/v1/halls/$roomId/orders/$orderId',
     payload: {
       'description': description,
       'items': items.map((item) => item.toJson()).toList(),
@@ -136,7 +136,7 @@ Future<void> saveExternalOrder({
   await _requestJson(
     session: session,
     method: 'POST',
-    path: '/rooms/$roomId/external-orders',
+    path: '/api/v1/halls/$roomId/external-orders',
     payload: {
       'externalName': externalName,
       'description': description,
@@ -154,7 +154,7 @@ Future<ClientOrder> markOrderEating({
   final body = await _requestJson(
     session: session,
     method: 'PATCH',
-    path: '/rooms/$roomId/orders/$orderId/status',
+    path: '/api/v1/halls/$roomId/orders/$orderId/status',
     payload: {'status': 'eating'},
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
@@ -169,7 +169,7 @@ Future<ClientOrder> transferTableOrder({
   final body = await _requestJson(
     session: session,
     method: 'PATCH',
-    path: '/rooms/$roomId/orders/$orderId/transfer',
+    path: '/api/v1/halls/$roomId/orders/$orderId/transfer',
     payload: {'tableId': tableId},
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
@@ -186,7 +186,7 @@ Future<ClientOrder> deliverOrderItem({
     session: session,
     method: 'PATCH',
     path:
-        '/rooms/$roomId/orders/$orderId/items/$itemId/units/$unitIndex/deliver',
+        '/api/v1/halls/$roomId/orders/$orderId/items/$itemId/units/$unitIndex/deliver',
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
 }
@@ -202,7 +202,7 @@ Future<ClientOrder> undoDeliveredOrderItem({
     session: session,
     method: 'PATCH',
     path:
-        '/rooms/$roomId/orders/$orderId/items/$itemId/units/$unitIndex/undo-delivery',
+        '/api/v1/halls/$roomId/orders/$orderId/items/$itemId/units/$unitIndex/undo-delivery',
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
 }
@@ -216,7 +216,7 @@ Future<ClientOrder> markOrderClosed({
   final body = await _requestJson(
     session: session,
     method: 'PATCH',
-    path: '/rooms/$roomId/orders/$orderId/status',
+    path: '/api/v1/halls/$roomId/orders/$orderId/status',
     payload: {'status': 'closed', 'paymentMethod': paymentMethod.apiValue},
   );
   return ClientOrder.fromJson(body['order'] as Map<String, dynamic>);
@@ -229,13 +229,16 @@ Future<Map<String, dynamic>> _requestJson({
   Map<String, dynamic>? payload,
   int expectedStatus = HttpStatus.ok,
 }) async {
-  final server = await openPairedServerClient();
+  final client = HttpClient();
   try {
-    final request = await server.http.openUrl(method, server.uri(path));
+    final request = await client.openUrl(method, cloudApiUri(path));
     request.headers.set(
       HttpHeaders.authorizationHeader,
       'Bearer ${session.token}',
     );
+    if (method != 'GET' && method != 'HEAD') {
+      request.headers.set('Idempotency-Key', newIdempotencyKey());
+    }
     if (payload != null) {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(payload));
@@ -258,9 +261,11 @@ Future<Map<String, dynamic>> _requestJson({
     return decoded;
   } on ClientRoomsException {
     rethrow;
-  } on Object {
+  } on Object catch (error, stackTrace) {
+    stderr.writeln('Cloud API request failed ($method $path): $error');
+    stderr.writeln(stackTrace);
     throw const ClientRoomsException('CONNECTION_FAILED');
   } finally {
-    server.close();
+    client.close(force: true);
   }
 }

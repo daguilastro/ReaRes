@@ -4,12 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/login_page.dart';
-import 'pair_device/pair_device_page.dart';
 import 'employees/employees_page.dart';
 import 'halls/halls_page.dart';
 import 'menus/menus_page.dart';
 import 'ingredients/ingredients_page.dart';
 import '../../services/admin_api.dart';
+import '../../services/admin_realtime.dart';
 import '../../utils/money.dart';
 
 const _ink = Color(0xFF222326);
@@ -34,14 +34,7 @@ Future<AdminOverviewMetrics> _loadOverview(
     ? Future.value(_emptyOverview)
     : getAdminOverview(token, period: period, range: range);
 
-enum _AdminSection {
-  overview,
-  menus,
-  ingredients,
-  halls,
-  employees,
-  pairDevice,
-}
+enum _AdminSection { overview, menus, ingredients, halls, employees }
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({
@@ -63,8 +56,42 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   _AdminSection _section = _AdminSection.overview;
+  late final AdminRealtimeService _realtime;
+  StreamSubscription<AdminRealtimeMessage>? _realtimeSubscription;
+  int _sectionRevision = 0;
 
   bool get _es => widget.strings.isSpanish;
+
+  @override
+  void initState() {
+    super.initState();
+    _realtime = AdminRealtimeService(widget.sessionToken);
+    _realtimeSubscription = _realtime.messages.listen((message) {
+      if (!mounted ||
+          _section == _AdminSection.overview ||
+          isLocalAdminMutation(message.mutationId)) {
+        return;
+      }
+      if (message.type == 'realtime.resync-required' ||
+          message.type.startsWith('catalog.') ||
+          message.type == 'hall.layout.changed' ||
+          message.type == 'hall.catalog.changed' ||
+          (message.type == 'dashboard.changed' &&
+              _section == _AdminSection.halls) ||
+          message.type.startsWith('halls.') ||
+          message.type.startsWith('employee.')) {
+        setState(() => _sectionRevision++);
+      }
+    });
+    unawaited(_realtime.start());
+  }
+
+  @override
+  void dispose() {
+    _realtimeSubscription?.cancel();
+    unawaited(_realtime.dispose());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,26 +145,32 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _content() => switch (_section) {
-    _AdminSection.overview => _DashboardContent(
-      spanish: _es,
-      token: widget.sessionToken,
-    ),
-    _AdminSection.pairDevice => PairDevicePage(
-      spanish: _es,
-      token: widget.sessionToken,
-    ),
-    _AdminSection.employees => EmployeesPage(
-      spanish: _es,
-      token: widget.sessionToken,
-    ),
-    _AdminSection.halls => HallsPage(spanish: _es, token: widget.sessionToken),
-    _AdminSection.menus => MenusPage(spanish: _es, token: widget.sessionToken),
-    _AdminSection.ingredients => IngredientsPage(
-      spanish: _es,
-      token: widget.sessionToken,
-    ),
-  };
+  Widget _content() => KeyedSubtree(
+    key: ValueKey('${_section.name}-$_sectionRevision'),
+    child: switch (_section) {
+      _AdminSection.overview => _DashboardContent(
+        spanish: _es,
+        token: widget.sessionToken,
+        realtime: _realtime,
+      ),
+      _AdminSection.employees => EmployeesPage(
+        spanish: _es,
+        token: widget.sessionToken,
+      ),
+      _AdminSection.halls => HallsPage(
+        spanish: _es,
+        token: widget.sessionToken,
+      ),
+      _AdminSection.menus => MenusPage(
+        spanish: _es,
+        token: widget.sessionToken,
+      ),
+      _AdminSection.ingredients => IngredientsPage(
+        spanish: _es,
+        token: widget.sessionToken,
+      ),
+    },
+  );
 }
 
 class _NavigationPanel extends StatelessWidget {
@@ -206,12 +239,6 @@ class _NavigationPanel extends StatelessWidget {
               label: spanish ? 'Empleados' : 'Employees',
               selected: selected == _AdminSection.employees,
               onTap: () => _select(context, _AdminSection.employees),
-            ),
-            _NavItem(
-              icon: Icons.devices_other_outlined,
-              label: spanish ? 'Vincular dispositivo' : 'Pair device',
-              selected: selected == _AdminSection.pairDevice,
-              onTap: () => _select(context, _AdminSection.pairDevice),
             ),
             const Spacer(),
             _NavItem(
@@ -321,10 +348,15 @@ class _NavItem extends StatelessWidget {
 }
 
 class _DashboardContent extends StatefulWidget {
-  const _DashboardContent({required this.spanish, required this.token});
+  const _DashboardContent({
+    required this.spanish,
+    required this.token,
+    required this.realtime,
+  });
 
   final bool spanish;
   final String token;
+  final AdminRealtimeService realtime;
 
   @override
   State<_DashboardContent> createState() => _DashboardContentState();
@@ -332,7 +364,7 @@ class _DashboardContent extends StatefulWidget {
 
 class _DashboardContentState extends State<_DashboardContent> {
   late Future<AdminOverviewMetrics> _summary;
-  StreamSubscription<AdminActivity>? _metricsSubscription;
+  StreamSubscription<AdminRealtimeMessage>? _metricsSubscription;
   int _revision = 0;
 
   bool get spanish => widget.spanish;
@@ -356,9 +388,9 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   void _connectMetrics() {
     if (token.isEmpty) return;
-    _metricsSubscription = watchAdminActivities(token).listen((activity) {
-      final modification = activity.modification.toLowerCase();
-      if (activity.type == 'Mesa' && modification.startsWith('facturó')) {
+    _metricsSubscription = widget.realtime.messages.listen((message) {
+      if (message.type == 'dashboard.changed' ||
+          message.type == 'realtime.resync-required') {
         _refreshMetrics();
       }
     }, onError: (_) {});
@@ -474,7 +506,11 @@ class _DashboardContentState extends State<_DashboardContent> {
                     _CategoryCard(spanish: spanish, metrics: _summary),
                   ],
                   const SizedBox(height: 22),
-                  _RecentActivityCard(spanish: spanish, token: token),
+                  _RecentActivityCard(
+                    spanish: spanish,
+                    token: token,
+                    realtime: widget.realtime,
+                  ),
                 ],
               );
             },
@@ -1297,10 +1333,15 @@ class _CategoryCard extends StatelessWidget {
 }
 
 class _RecentActivityCard extends StatefulWidget {
-  const _RecentActivityCard({required this.spanish, required this.token});
+  const _RecentActivityCard({
+    required this.spanish,
+    required this.token,
+    required this.realtime,
+  });
 
   final bool spanish;
   final String token;
+  final AdminRealtimeService realtime;
 
   @override
   State<_RecentActivityCard> createState() => _RecentActivityCardState();
@@ -1310,7 +1351,7 @@ class _RecentActivityCardState extends State<_RecentActivityCard> {
   final _cardKey = GlobalKey();
   bool _isExpanded = false;
   final _activities = ValueNotifier<List<AdminActivity>>([]);
-  StreamSubscription<AdminActivity>? _activitySubscription;
+  StreamSubscription<AdminRealtimeMessage>? _activitySubscription;
 
   @override
   void initState() {
@@ -1326,15 +1367,30 @@ class _RecentActivityCardState extends State<_RecentActivityCard> {
       // El stream puede seguir entregando actividad aunque falle la carga inicial.
     }
     if (!mounted) return;
-    _activitySubscription = watchAdminActivities(widget.token).listen((
-      activity,
-    ) {
+    _activitySubscription = widget.realtime.messages.listen((message) {
       if (!mounted) return;
+      if (message.type == 'realtime.resync-required') {
+        unawaited(_reloadActivities());
+        return;
+      }
+      if (message.type != 'activity.created') return;
+      final raw = message.payload['activity'];
+      if (raw is! Map) return;
+      final activity = AdminActivity.fromJson(Map<String, dynamic>.from(raw));
       _activities.value = [
         activity,
         ..._activities.value.where((item) => item.id != activity.id),
       ].take(100).toList();
     }, onError: (_) {});
+  }
+
+  Future<void> _reloadActivities() async {
+    try {
+      final loaded = await getAdminActivities(widget.token);
+      if (mounted) _activities.value = loaded;
+    } on Object {
+      // The next valid patch can still repair the visible list.
+    }
   }
 
   @override

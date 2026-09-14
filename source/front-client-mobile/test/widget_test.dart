@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:restaurante_front/views/auth/login_page.dart';
 import 'package:restaurante_front/main.dart';
-import 'package:restaurante_front/views/pairing/pairing_page.dart';
 import 'package:restaurante_front/views/splash/splash_screen.dart';
 import 'package:restaurante_front/models/client_user.dart';
 import 'package:restaurante_front/models/client_room.dart';
@@ -36,7 +35,7 @@ void main() {
         home: SplashScreen(
           strings: AppStrings.fromLocale(const Locale('en')),
           initialChecks: () => checks.future,
-          reconnectCheck: reconnectFails,
+          restoreSession: restoreNoClientSession,
         ),
       ),
     );
@@ -49,7 +48,7 @@ void main() {
     checks.complete();
     await tester.pump();
     await tester.pumpAndSettle();
-    expect(find.byType(PairingPage), findsOneWidget);
+    expect(find.byType(LoginPage), findsOneWidget);
   });
 
   testWidgets('login form animates and toggles password visibility', (
@@ -119,13 +118,12 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('a successful mDNS reconnect skips pairing', (tester) async {
+  testWidgets('a reachable cloud service opens login', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: SplashScreen(
           strings: AppStrings.fromLocale(const Locale('en')),
           initialChecks: completeChecksImmediately,
-          reconnectCheck: () async => true,
           restoreSession: restoreNoClientSession,
         ),
       ),
@@ -133,7 +131,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LoginPage), findsOneWidget);
-    expect(find.byType(PairingPage), findsNothing);
   });
 
   testWidgets('a valid stored session opens rooms and can log out', (
@@ -155,7 +152,6 @@ void main() {
         home: SplashScreen(
           strings: AppStrings.fromLocale(const Locale('en')),
           initialChecks: completeChecksImmediately,
-          reconnectCheck: () async => true,
           restoreSession: () async => session,
           logout: (_) async => logoutCalls++,
           roomsBuilder: (_, _, onLogout) => Scaffold(
@@ -180,24 +176,20 @@ void main() {
     expect(find.byType(LoginPage), findsOneWidget);
   });
 
-  testWidgets('a stalled mDNS reconnect falls back to desktop pairing', (
-    tester,
-  ) async {
+  testWidgets('an unavailable cloud service exposes retry', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: SplashScreen(
           strings: AppStrings.fromLocale(const Locale('en')),
-          initialChecks: completeChecksImmediately,
-          reconnectCheck: reconnectNeverFinishes,
-          reconnectTimeout: const Duration(milliseconds: 20),
+          initialChecks: () async => throw Exception('offline'),
+          restoreSession: restoreNoClientSession,
         ),
       ),
     );
 
-    await tester.pump(const Duration(milliseconds: 25));
     await tester.pumpAndSettle();
-    expect(find.byType(PairingPage), findsOneWidget);
-    expect(find.byKey(const ValueKey('upload-pairing-qr')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cloud-unavailable')), findsOneWidget);
+    expect(find.byKey(const ValueKey('retry-cloud-check')), findsOneWidget);
   });
 
   testWidgets('uses Spanish for a Spanish device locale', (tester) async {

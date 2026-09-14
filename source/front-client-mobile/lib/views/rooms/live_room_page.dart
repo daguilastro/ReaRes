@@ -209,9 +209,57 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   }
 
   void _handleRealtimeEvent(ClientRealtimeEvent event) {
-    if ((event.type == 'room-layout-changed' ||
-            event.type == 'room-orders-changed') &&
-        event.roomId == widget.room.id) {
+    if (event.roomId != null && event.roomId != widget.room.id) return;
+    if (event.type == 'hall.orders.changed') {
+      final operation = event.payload['operation'];
+      if (operation == 'delete') {
+        final id = event.payload['orderId'];
+        if (id is int) {
+          setState(() => _orders.removeWhere((order) => order.id == id));
+          _syncTableStatuses();
+        }
+        return;
+      }
+      final rawOrder = event.payload['order'];
+      if (operation == 'upsert' && rawOrder is Map) {
+        try {
+          final order = ClientOrder.fromJson(
+            Map<String, dynamic>.from(rawOrder),
+          );
+          setState(() {
+            final index = _orders.indexWhere(
+              (current) => current.id == order.id,
+            );
+            if (order.status == 'closed') {
+              if (index >= 0) _orders.removeAt(index);
+            } else if (index >= 0) {
+              _orders[index] = order;
+            } else {
+              _orders.add(order);
+            }
+          });
+          _syncTableStatuses();
+          return;
+        } on Object {
+          // A malformed or newer patch falls back to the canonical GET below.
+        }
+      }
+      _reload(realtime: true);
+    } else if (event.type == 'hall.layout.changed') {
+      final rawLayout = event.payload['layout'];
+      if (rawLayout is Map &&
+          !_layout.dirty &&
+          _layout.interaction == LiveLayoutInteraction.normal) {
+        try {
+          _layout.replaceFromRealtime(
+            LiveRoomLayout.fromJson(Map<String, dynamic>.from(rawLayout)),
+          );
+          _syncTableStatuses();
+          return;
+        } on Object {
+          // Fall through to a version repair GET.
+        }
+      }
       if (_saving ||
           _layout.dirty ||
           _layout.interaction != LiveLayoutInteraction.normal) {
@@ -219,9 +267,30 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       } else {
         _reload(realtime: true);
       }
-    } else if (event.type == 'room-assignments-changed') {
+    } else if (event.requiresResync) {
+      _reload(realtime: true);
+    } else if (event.type == 'hall.assignments.changed') {
       _reload(realtime: true, closeWhenUnauthorized: true);
     }
+  }
+
+  void _syncTableStatuses() {
+    final statuses = <int, String>{};
+    for (final order in _orders) {
+      if (order.tableGroupId != null) {
+        final group = _layout.groups
+            .where((candidate) => candidate.id == order.tableGroupId)
+            .firstOrNull;
+        if (group != null) {
+          for (final tableId in group.tableIds) {
+            statuses[tableId] = order.status;
+          }
+        }
+      } else if (order.tableId > 0) {
+        statuses[order.tableId] = order.status;
+      }
+    }
+    _layout.applyOrderStatuses(statuses);
   }
 
   Future<void> _load() async {
@@ -234,6 +303,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (mounted) {
         _layout.load(layout);
         _orders = values[1] as List<ClientOrder>;
+        _syncTableStatuses();
         setState(() {
           _loading = false;
           _error = null;
@@ -267,6 +337,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (!mounted) return;
       _layout.replaceFromRealtime(layout);
       _orders = values[1] as List<ClientOrder>;
+      _syncTableStatuses();
       if (!realtime) setState(() => _error = null);
     } on Object {
       if (!mounted) return;

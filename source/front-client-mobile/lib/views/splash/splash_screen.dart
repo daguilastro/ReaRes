@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../../services/client_identity.dart';
 import '../../services/client_auth_api.dart';
+import '../../services/cloud_api.dart';
 import '../../models/client_user.dart';
 import '../auth/login_page.dart';
-import '../pairing/pairing_page.dart';
-import '../../services/server_reconnect.dart';
 import '../rooms/rooms_page.dart';
 
 /// Punto único para las comprobaciones que deben terminar antes del login.
 /// Las verificaciones reales pueden añadirse a esta función sin cambiar la UI.
 Future<void> runInitialChecks() async {
   await Future.wait([
-    ensureClientIdentity(),
+    verifyCloudApiIsRunning(),
     // Mantiene visible la animación el tiempo suficiente para evitar un destello.
     Future<void>.delayed(const Duration(milliseconds: 1400)),
   ]);
@@ -31,9 +29,9 @@ class SplashScreen extends StatefulWidget {
     super.key,
     required this.strings,
     this.initialChecks = runInitialChecks,
-    this.skipPairing = false,
-    this.reconnectCheck = reconnectToPairedServer,
-    this.reconnectTimeout = const Duration(seconds: 8),
+    bool skipPairing = false,
+    Future<bool> Function()? reconnectCheck,
+    Duration reconnectTimeout = const Duration(seconds: 8),
     this.restoreSession = restoreStoredClientSession,
     this.logout = logoutClient,
     this.roomsBuilder,
@@ -41,9 +39,6 @@ class SplashScreen extends StatefulWidget {
 
   final AppStrings strings;
   final Future<void> Function() initialChecks;
-  final bool skipPairing;
-  final Future<bool> Function() reconnectCheck;
-  final Duration reconnectTimeout;
   final Future<ClientSession?> Function() restoreSession;
   final Future<void> Function(ClientSession session) logout;
   final ClientRoomsBuilder? roomsBuilder;
@@ -75,48 +70,31 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _initialize() async {
-    var reconnected = false;
     try {
       await widget.initialChecks();
       if (!mounted) return;
-      reconnected =
-          widget.skipPairing ||
-          await widget.reconnectCheck().timeout(
-            widget.reconnectTimeout,
-            onTimeout: () {
-              debugPrint(
-                'La reconexión excedió ${widget.reconnectTimeout.inSeconds}s.',
-              );
-              return false;
-            },
-          );
-      if (reconnected) {
-        _authenticatedSession = await widget.restoreSession();
-      }
+      _authenticatedSession = await widget.restoreSession();
     } on Object catch (error, stackTrace) {
-      // Una comprobación fallida nunca debe dejar el splash bloqueado. La
-      // pantalla de pairing podrá volver a crear/verificar la identidad.
       debugPrint('Las comprobaciones iniciales fallaron: $error');
       debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      _pulseController.stop();
+      setState(() => _view = _StartupView.unavailable);
+      return;
     }
     if (!mounted) return;
     _pulseController.stop();
     setState(
-      () => _view = !reconnected
-          ? _StartupView.pairing
-          : _authenticatedSession == null
+      () => _view = _authenticatedSession == null
           ? _StartupView.login
           : _StartupView.rooms,
     );
   }
 
-  Future<void> _onPaired() async {
-    final restored = await widget.restoreSession();
-    if (!mounted) return;
-    setState(() {
-      _authenticatedSession = restored;
-      _view = restored == null ? _StartupView.login : _StartupView.rooms;
-    });
+  void _retry() {
+    setState(() => _view = _StartupView.splash);
+    _pulseController.repeat(reverse: true);
+    _initialize();
   }
 
   Future<void> _logout() async {
@@ -196,11 +174,11 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ],
             )
-          : _view == _StartupView.pairing
-          ? PairingPage(
-              key: const ValueKey('pairing-screen'),
+          : _view == _StartupView.unavailable
+          ? _CloudUnavailable(
+              key: const ValueKey('cloud-unavailable'),
               spanish: widget.strings.isSpanish,
-              onPaired: _onPaired,
+              onRetry: _retry,
             )
           : Scaffold(
               key: const ValueKey('splash-screen'),
@@ -229,7 +207,57 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-enum _StartupView { splash, pairing, login, rooms }
+enum _StartupView { splash, unavailable, login, rooms }
+
+class _CloudUnavailable extends StatelessWidget {
+  const _CloudUnavailable({
+    super.key,
+    required this.spanish,
+    required this.onRetry,
+  });
+
+  final bool spanish;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off_rounded,
+              size: 64,
+              color: Color(0xFF8798AC),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              spanish ? 'Servidor no disponible' : 'Server unavailable',
+              style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              spanish
+                  ? 'No se pudo conectar con el servicio en la nube.'
+                  : 'The cloud service could not be reached.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFF6D7075)),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              key: const ValueKey('retry-cloud-check'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(spanish ? 'Reintentar' : 'Retry'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
 class _FadeOutTransition extends StatelessWidget {
   const _FadeOutTransition({required this.animation, required this.child});

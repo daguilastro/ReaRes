@@ -87,6 +87,14 @@ class LiveRoomController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void applyOrderStatuses(Map<int, String> statuses) {
+    tables = [
+      for (final table in tables)
+        table.copyWith(status: statuses[table.id] ?? 'available'),
+    ];
+    notifyListeners();
+  }
+
   void toggleSelection(int id) {
     if (selectedTableIds.contains(id)) {
       selectedTableIds = {...selectedTableIds}..remove(id);

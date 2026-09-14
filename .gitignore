@@ -1,6 +1,7 @@
 node_modules/
 npm-debug.log*
 backups/
+.wrangler/
 
 # SQLite runtime databases and transient journal files.
 # The database is generated from db/schheme.sql at startup.

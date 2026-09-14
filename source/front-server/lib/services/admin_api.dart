@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -48,7 +50,7 @@ class AdminActivity {
     author: json['author'] as String,
     type: json['type'] as String,
     modification: json['modification'] as String,
-    roomId: json['roomId'] as int?,
+    roomId: (json['roomId'] ?? json['hallId']) as int?,
     createdAt: DateTime.parse(json['createdAt'] as String),
   );
 
@@ -145,7 +147,7 @@ Future<AdminOverviewMetrics> getAdminOverview(
   int range = 7,
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/overview?period=$period&range=$range',
+    '/api/v1/admin/overview?period=$period&range=$range',
   );
   final response = await http
       .get(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -162,7 +164,7 @@ Future<AdminOverviewMetrics> getAdminOverview(
 
 Future<List<AdminActivity>> getAdminActivities(String token) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/activities',
+    '/api/v1/admin/activities',
   );
   final response = await http
       .get(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -182,33 +184,37 @@ Future<List<AdminActivity>> getAdminActivities(String token) async {
 }
 
 Stream<AdminActivity> watchAdminActivities(String token) async* {
-  final client = http.Client();
-  try {
-    final endpoint = (await getLocalAdminBaseUri()).resolve(
-      '/api/admin/events',
-    );
-    final request = http.Request('GET', endpoint)
-      ..headers['authorization'] = 'Bearer $token'
-      ..headers['accept'] = 'text/event-stream';
-    final response = await client.send(request);
-    if (response.statusCode != 200) {
-      throw AdminRegistrationException(
-        'ACTIVITY_STREAM_FAILED',
-        statusCode: response.statusCode,
-      );
-    }
-    await for (final line
-        in response.stream
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())) {
-      if (!line.startsWith('data:')) continue;
-      final value = jsonDecode(line.substring(5).trim());
-      if (value is Map<String, dynamic> && value['id'] is int) {
-        yield AdminActivity.fromJson(value);
+  while (true) {
+    WebSocket? socket;
+    try {
+      final base = await getLocalAdminBaseUri();
+      final endpoint = base
+          .resolve('/api/v1/realtime')
+          .replace(scheme: base.scheme == 'https' ? 'wss' : 'ws');
+      socket = await WebSocket.connect(
+        endpoint.toString(),
+        headers: {'authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      socket.add(jsonEncode({'type': 'subscribe-admin'}));
+      await for (final raw in socket) {
+        if (raw is! String) continue;
+        final value = jsonDecode(raw);
+        if (value is! Map<String, dynamic> ||
+            value['type'] != 'activity.created' ||
+            value['payload'] is! Map) {
+          continue;
+        }
+        final payload = Map<String, dynamic>.from(value['payload'] as Map);
+        final activity = payload['activity'];
+        if (activity is Map) {
+          yield AdminActivity.fromJson(Map<String, dynamic>.from(activity));
+        }
       }
+    } on Object {
+      await Future<void>.delayed(const Duration(seconds: 2));
+    } finally {
+      await socket?.close();
     }
-  } finally {
-    client.close();
   }
 }
 
@@ -273,7 +279,7 @@ Future<CatalogSnapshot> getCatalog(String token) async {
   final body = await _catalogRequest(
     token: token,
     method: 'GET',
-    path: '/api/admin/catalog',
+    path: '/api/v1/catalog',
   );
   return CatalogSnapshot.fromJson(body);
 }
@@ -287,7 +293,7 @@ Future<CatalogIngredient> createIngredient({
   final body = await _catalogRequest(
     token: token,
     method: 'POST',
-    path: '/api/admin/ingredients',
+    path: '/api/v1/admin/ingredients',
     payload: {
       'name': name,
       'description': description,
@@ -305,7 +311,7 @@ Future<IngredientCategory> createIngredientCategory({
   final body = await _catalogRequest(
     token: token,
     method: 'POST',
-    path: '/api/admin/ingredient-categories',
+    path: '/api/v1/admin/ingredient-categories',
     payload: {'name': name},
     expectedStatus: 201,
   );
@@ -320,7 +326,7 @@ Future<RestaurantMenu> createMenu({
   final body = await _catalogRequest(
     token: token,
     method: 'POST',
-    path: '/api/admin/menus',
+    path: '/api/v1/admin/menus',
     payload: {
       'name': name,
       'hallAssignments': [
@@ -341,7 +347,7 @@ Future<void> updateRoomMenus({
   await _catalogRequest(
     token: token,
     method: 'PUT',
-    path: '/api/admin/rooms/$roomId/menus',
+    path: '/api/v1/admin/halls/$roomId/menus',
     payload: {
       'primaryMenuId': configuration.primaryMenuId,
       'secondaryMenus': [
@@ -362,7 +368,7 @@ Future<MenuCategory> createMenuCategory({
   final body = await _catalogRequest(
     token: token,
     method: 'POST',
-    path: '/api/admin/menus/$menuId/categories',
+    path: '/api/v1/admin/menus/$menuId/categories',
     payload: {
       'name': name,
       'parentCategoryId': parentCategoryId,
@@ -386,7 +392,7 @@ Future<CatalogProduct> createMenuProduct({
   final body = await _catalogRequest(
     token: token,
     method: 'POST',
-    path: '/api/admin/menus/$menuId/products',
+    path: '/api/v1/admin/menus/$menuId/products',
     payload: {
       'name': name,
       'description': description,
@@ -412,7 +418,7 @@ Future<CatalogProduct> updateMenuProduct({
   final body = await _catalogRequest(
     token: token,
     method: 'PATCH',
-    path: '/api/admin/products/$productId',
+    path: '/api/v1/admin/products/$productId',
     payload: {
       'name': name,
       'description': description,
@@ -429,10 +435,10 @@ Future<void> deactivateMenuProduct({
   required int productId,
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/products/$productId',
+    '/api/v1/admin/products/$productId',
   );
   final response = await http
-      .delete(endpoint, headers: {'authorization': 'Bearer $token'})
+      .delete(endpoint, headers: _headers(token, mutation: true))
       .timeout(const Duration(seconds: 12));
   if (response.statusCode != 204) {
     throw AdminRegistrationException(
@@ -450,7 +456,7 @@ Future<void> reorderMenuProducts({
   await _catalogRequest(
     token: token,
     method: 'PUT',
-    path: '/api/admin/categories/$categoryId/product-order',
+    path: '/api/v1/admin/categories/$categoryId/product-order',
     payload: {'productIds': productIds},
   );
 }
@@ -464,7 +470,7 @@ Future<void> reorderMenuCategories({
   await _catalogRequest(
     token: token,
     method: 'PUT',
-    path: '/api/admin/menus/$menuId/category-order',
+    path: '/api/v1/admin/menus/$menuId/category-order',
     payload: {'parentCategoryId': parentCategoryId, 'categoryIds': categoryIds},
   );
 }
@@ -477,7 +483,7 @@ Future<void> renameMenuCategory({
   await _catalogRequest(
     token: token,
     method: 'PATCH',
-    path: '/api/admin/categories/$categoryId',
+    path: '/api/v1/admin/categories/$categoryId',
     payload: {'name': name},
   );
 }
@@ -491,7 +497,7 @@ Future<Map<String, dynamic>> _catalogRequest({
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(path);
   final request = http.Request(method, endpoint)
-    ..headers['authorization'] = 'Bearer $token';
+    ..headers.addAll(_headers(token, mutation: method != 'GET'));
   if (payload != null) {
     request.headers['content-type'] = 'application/json';
     request.body = jsonEncode(payload);
@@ -519,7 +525,7 @@ Future<RoomLayoutModel> getRoomLayout({
   required int roomId,
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/rooms/$roomId/layout',
+    '/api/v1/halls/$roomId/layout',
   );
   final response = await http
       .get(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -535,20 +541,20 @@ Future<RoomLayoutModel> getRoomLayout({
 }
 
 Future<List<RoomSummary>> getRooms(String token) async {
-  final endpoint = (await getLocalAdminBaseUri()).resolve('/api/admin/rooms');
+  final endpoint = (await getLocalAdminBaseUri()).resolve('/api/v1/halls');
   final response = await http
       .get(endpoint, headers: {'authorization': 'Bearer $token'})
       .timeout(const Duration(seconds: 8));
   final body = jsonDecode(response.body);
   if (response.statusCode != 200 ||
       body is! Map<String, dynamic> ||
-      body['rooms'] is! List) {
+      body['halls'] is! List) {
     throw AdminRegistrationException(
       'ROOMS_LOAD_FAILED',
       statusCode: response.statusCode,
     );
   }
-  return (body['rooms'] as List)
+  return (body['halls'] as List)
       .map((room) => RoomSummary.fromJson(room as Map<String, dynamic>))
       .toList();
 }
@@ -557,14 +563,13 @@ Future<RoomSummary> createRoom({
   required String token,
   required String name,
 }) async {
-  final endpoint = (await getLocalAdminBaseUri()).resolve('/api/admin/rooms');
+  final endpoint = (await getLocalAdminBaseUri()).resolve(
+    '/api/v1/admin/halls',
+  );
   final response = await http
       .post(
         endpoint,
-        headers: {
-          'authorization': 'Bearer $token',
-          'content-type': 'application/json',
-        },
+        headers: _headers(token, mutation: true, json: true),
         body: jsonEncode({'name': name}),
       )
       .timeout(const Duration(seconds: 8));
@@ -586,15 +591,12 @@ Future<RoomLayoutModel> saveRoomLayout({
   required RoomLayoutModel layout,
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/rooms/$roomId/layout',
+    '/api/v1/admin/halls/$roomId/layout',
   );
   final response = await http
       .put(
         endpoint,
-        headers: {
-          'authorization': 'Bearer $token',
-          'content-type': 'application/json',
-        },
+        headers: _headers(token, mutation: true, json: true),
         body: jsonEncode(layout.toJson()),
       )
       .timeout(const Duration(seconds: 12));
@@ -610,7 +612,7 @@ Future<RoomLayoutModel> saveRoomLayout({
 
 Future<List<EmployeeAccount>> getEmployees(String token) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/employees',
+    '/api/v1/admin/employees',
   );
   final response = await http
       .get(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -639,7 +641,7 @@ Future<EmployeeAccount> createEmployee({
 }) => _writeEmployee(
   token: token,
   method: 'POST',
-  path: '/api/admin/employees',
+  path: '/api/v1/admin/employees',
   body: {
     'fullName': fullName,
     'username': username,
@@ -658,7 +660,7 @@ Future<EmployeeAccount> updateEmployee({
 }) => _writeEmployee(
   token: token,
   method: 'PATCH',
-  path: '/api/admin/employees/$id',
+  path: '/api/v1/admin/employees/$id',
   body: {
     'role': role,
     'roomIds': roomIds,
@@ -674,10 +676,7 @@ Future<EmployeeAccount> _writeEmployee({
 }) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(path);
   final request = http.Request(method, endpoint)
-    ..headers.addAll({
-      'authorization': 'Bearer $token',
-      'content-type': 'application/json',
-    })
+    ..headers.addAll(_headers(token, mutation: true, json: true))
     ..body = jsonEncode(body);
   final streamed = await request.send().timeout(const Duration(seconds: 12));
   final response = await http.Response.fromStream(streamed);
@@ -697,10 +696,10 @@ Future<EmployeeAccount> _writeEmployee({
 
 Future<void> deleteEmployee({required String token, required int id}) async {
   final endpoint = (await getLocalAdminBaseUri()).resolve(
-    '/api/admin/employees/$id',
+    '/api/v1/admin/employees/$id',
   );
   final response = await http
-      .delete(endpoint, headers: {'authorization': 'Bearer $token'})
+      .delete(endpoint, headers: _headers(token, mutation: true))
       .timeout(const Duration(seconds: 8));
   if (response.statusCode != 204) {
     throw AdminRegistrationException(
@@ -773,7 +772,9 @@ Future<AdminSession> loginAdmin({
   required String password,
 }) async {
   try {
-    final endpoint = (await getLocalAdminBaseUri()).resolve('/api/admin/login');
+    final endpoint = (await getLocalAdminBaseUri()).resolve(
+      '/api/v1/auth/login',
+    );
     final response = await http
         .post(
           endpoint,
@@ -790,7 +791,7 @@ Future<AdminSession> loginAdmin({
       return AdminSession(
         token: body['token'] as String,
         expiresAt: DateTime.parse(body['expiresAt'] as String),
-        admin: _parseAdmin(body['admin']),
+        admin: _parseAdmin(body['user']),
       );
     }
     final code = body is Map<String, dynamic> && body['error'] is String
@@ -810,7 +811,7 @@ Future<AdminSession> loginAdmin({
 Future<AdminSession?> verifyAdminSession(String token) async {
   try {
     final endpoint = (await getLocalAdminBaseUri()).resolve(
-      '/api/admin/session',
+      '/api/v1/auth/session',
     );
     final response = await http
         .get(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -825,7 +826,7 @@ Future<AdminSession?> verifyAdminSession(String token) async {
     return AdminSession(
       token: token,
       expiresAt: DateTime.parse(body['expiresAt'] as String),
-      admin: _parseAdmin(body['admin']),
+      admin: _parseAdmin(body['user']),
     );
   } on Object {
     return null;
@@ -835,7 +836,7 @@ Future<AdminSession?> verifyAdminSession(String token) async {
 Future<void> logoutAdmin(String token) async {
   try {
     final endpoint = (await getLocalAdminBaseUri()).resolve(
-      '/api/admin/logout',
+      '/api/v1/auth/logout',
     );
     await http
         .post(endpoint, headers: {'authorization': 'Bearer $token'})
@@ -858,6 +859,36 @@ class AdminRegistrationException implements Exception {
       'statusCode: $statusCode, details: $details)';
 }
 
+Map<String, String> _headers(
+  String token, {
+  bool mutation = false,
+  bool json = false,
+}) {
+  final key = mutation ? _newIdempotencyKey() : null;
+  if (key != null) {
+    _localMutationIds.add(key);
+    if (_localMutationIds.length > 256) {
+      _localMutationIds.remove(_localMutationIds.first);
+    }
+  }
+  return {
+    'authorization': 'Bearer $token',
+    if (json) 'content-type': 'application/json',
+    'Idempotency-Key': ?key,
+  };
+}
+
+final _localMutationIds = <String>{};
+
+bool isLocalAdminMutation(String? mutationId) =>
+    mutationId != null && _localMutationIds.contains(mutationId);
+
+String _newIdempotencyKey() {
+  final random = math.Random.secure();
+  final bytes = List<int>.generate(18, (_) => random.nextInt(256));
+  return 'flutter-${base64Url.encode(bytes).replaceAll('=', '')}';
+}
+
 Future<RegisteredAdmin> registerAdmin({
   required String fullName,
   required String username,
@@ -865,7 +896,7 @@ Future<RegisteredAdmin> registerAdmin({
 }) async {
   try {
     final baseUri = await getLocalAdminBaseUri();
-    final endpoint = baseUri.resolve('/api/admin/register');
+    final endpoint = baseUri.resolve('/api/v1/auth/register');
     debugPrint('Admin register: POST $endpoint');
     final response = await http
         .post(

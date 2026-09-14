@@ -1040,8 +1040,29 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
 
     int? selectedSpecialCategoryId;
     final customizationScrollController = ScrollController();
+    final specialSearchAnchor = GlobalKey();
     final specialPanelKeys = <int, GlobalKey>{};
     var customizationOpen = true;
+    void revealSpecialSearch() {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // Espera a que el teclado reduzca el viewport antes de calcular la
+        // posición final del buscador.
+        await Future<void>.delayed(const Duration(milliseconds: 280));
+        if (!customizationOpen || !customizationScrollController.hasClients) {
+          return;
+        }
+        final targetContext = specialSearchAnchor.currentContext;
+        if (targetContext == null || !targetContext.mounted) return;
+        await Scrollable.ensureVisible(
+          targetContext,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: 0,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+      });
+    }
+
     void revealSpecialProducts(int categoryId) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 230));
@@ -1202,31 +1223,37 @@ class _OrderEditorDialogState extends State<OrderEditorDialog> {
                           : 'Customize with special categories',
                     ),
                     const SizedBox(height: 10),
-                    TextField(
-                      key: const ValueKey('special-product-search'),
-                      controller: specialSearchController,
-                      onChanged: (value) => modalSetState(() {
-                        specialSearchQuery = value;
-                      }),
-                      decoration: InputDecoration(
-                        hintText: _es
-                            ? 'Buscar adiciones y productos especiales'
-                            : 'Search additions and special products',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: specialSearchQuery.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  specialSearchController.clear();
-                                  modalSetState(() => specialSearchQuery = '');
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                        filled: true,
-                        fillColor: const Color(0xFFF4F6F8),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(13),
-                          borderSide: BorderSide.none,
+                    KeyedSubtree(
+                      key: specialSearchAnchor,
+                      child: TextField(
+                        key: const ValueKey('special-product-search'),
+                        controller: specialSearchController,
+                        onTap: revealSpecialSearch,
+                        onChanged: (value) => modalSetState(() {
+                          specialSearchQuery = value;
+                        }),
+                        decoration: InputDecoration(
+                          hintText: _es
+                              ? 'Buscar adiciones y productos especiales'
+                              : 'Search additions and special products',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: specialSearchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    specialSearchController.clear();
+                                    modalSetState(
+                                      () => specialSearchQuery = '',
+                                    );
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                          filled: true,
+                          fillColor: const Color(0xFFF4F6F8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(13),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                       ),
                     ),

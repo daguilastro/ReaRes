@@ -1,13 +1,142 @@
 import { DatabaseSync } from 'node:sqlite';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { openApplicationDatabase } from '../source/backend/shared/schemaMigration';
 
-type ProductSeed = readonly [name: string, value: number];
-type CategorySeed = {
+export type ProductSeed = readonly [name: string, value: number];
+export type CategorySeed = {
   readonly name: string;
   readonly special?: boolean;
   readonly products?: readonly ProductSeed[];
   readonly children?: readonly CategorySeed[];
 };
+
+const D1_BATCH_SIZE = 20;
+
+function sqlText(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function d1MenuId(menuName: string): string {
+  return `(SELECT id FROM menu WHERE name = ${sqlText(menuName)} ORDER BY id LIMIT 1)`;
+}
+
+function d1CategoryId(
+  menuName: string,
+  path: readonly CategorySeed[],
+): string {
+  const category = path.at(-1);
+  if (!category) throw new Error('La ruta de categoría está vacía.');
+  const parentId = path.length === 1
+    ? 'NULL'
+    : d1CategoryId(menuName, path.slice(0, -1));
+  const parentPredicate = path.length === 1
+    ? 'parent_category_id IS NULL'
+    : `parent_category_id = ${parentId}`;
+  return `(SELECT id FROM menu_categories
+    WHERE menu_id = ${d1MenuId(menuName)}
+      AND name = ${sqlText(category.name)}
+      AND ${parentPredicate}
+      AND is_special = ${category.special ? 1 : 0}
+    ORDER BY id LIMIT 1)`;
+}
+
+function d1ProductId(
+  menuName: string,
+  path: readonly CategorySeed[],
+  productName: string,
+): string {
+  return `(SELECT id FROM products
+    WHERE menu_id = ${d1MenuId(menuName)}
+      AND category_id = ${d1CategoryId(menuName, path)}
+      AND name = ${sqlText(productName)}
+    ORDER BY id LIMIT 1)`;
+}
+
+export function comMenuD1Statements(menuName = '.COM menu'): string[] {
+  return catalogD1Statements(comMenuCatalog, menuName);
+}
+
+export function catalogD1Statements(
+  catalog: readonly CategorySeed[],
+  menuName: string,
+): string[] {
+  const normalizedName = menuName.trim();
+  if (!normalizedName) throw new Error('El nombre del menú no puede estar vacío.');
+  const statements = [
+    `INSERT INTO menu (name)
+     SELECT ${sqlText(normalizedName)}
+     WHERE NOT EXISTS (SELECT 1 FROM menu WHERE name = ${sqlText(normalizedName)})`,
+  ];
+
+  const addCategories = (
+    categories: readonly CategorySeed[],
+    parentPath: readonly CategorySeed[],
+  ) => {
+    categories.forEach((category, categoryPosition) => {
+      const path = [...parentPath, category];
+      const categoryId = d1CategoryId(normalizedName, path);
+      const parentId = parentPath.length === 0
+        ? 'NULL'
+        : d1CategoryId(normalizedName, parentPath);
+      const parentExists = parentPath.length === 0
+        ? ''
+        : ` AND ${parentId} IS NOT NULL`;
+      statements.push(
+        `INSERT INTO menu_categories
+          (menu_id, name, parent_category_id, is_special, position)
+         SELECT ${d1MenuId(normalizedName)}, ${sqlText(category.name)},
+           ${parentId}, ${category.special ? 1 : 0}, ${categoryPosition}
+         WHERE NOT EXISTS (SELECT 1 FROM menu_categories WHERE id = ${categoryId})${parentExists}`,
+      );
+      category.products?.forEach(([name, value], productPosition) => {
+        const productId = d1ProductId(normalizedName, path, name);
+        statements.push(
+          `INSERT INTO products
+            (name, description, value, menu_id, category_id, is_active)
+           SELECT ${sqlText(name)}, NULL, ${value}, ${d1MenuId(normalizedName)},
+             ${categoryId}, 1
+           WHERE ${categoryId} IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM products WHERE id = ${productId})`,
+          `INSERT OR IGNORE INTO category_product_positions
+            (category_id, product_id, position)
+           SELECT ${categoryId}, ${productId}, ${productPosition}
+           WHERE ${categoryId} IS NOT NULL AND ${productId} IS NOT NULL`,
+        );
+      });
+      if (category.children) addCategories(category.children, path);
+    });
+  };
+
+  addCategories(catalog, []);
+  return statements;
+}
+
+export function insertComMenuIntoD1(menuName = '.COM menu'): void {
+  insertCatalogMenuIntoD1(comMenuCatalog, menuName);
+}
+
+export function insertCatalogMenuIntoD1(
+  catalog: readonly CategorySeed[],
+  menuName: string,
+): void {
+  const wrangler = resolve(__dirname, '../node_modules/.bin/wrangler');
+  const statements = catalogD1Statements(catalog, menuName);
+  const batches = Math.ceil(statements.length / D1_BATCH_SIZE);
+  for (let index = 0; index < statements.length; index += D1_BATCH_SIZE) {
+    const batch = statements.slice(index, index + D1_BATCH_SIZE).join(';\n');
+    const result = spawnSync(wrangler, [
+      'd1', 'execute', 'DB', '--remote', '--command', batch, '--json',
+    ], { encoding: 'utf8' });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      process.stderr.write(result.stdout);
+      process.stderr.write(result.stderr);
+      throw new Error(`Falló el lote D1 ${Math.floor(index / D1_BATCH_SIZE) + 1}.`);
+    }
+    console.log(`D1: lote ${Math.floor(index / D1_BATCH_SIZE) + 1}/${batches} aplicado.`);
+  }
+}
 
 const sandwichSizes = (
   baby: readonly ProductSeed[],
@@ -356,6 +485,14 @@ export function insertComMenu(
   database: DatabaseSync,
   menuName = '.COM menu',
 ): ComMenuImportResult {
+  return insertCatalogMenu(database, comMenuCatalog, menuName);
+}
+
+export function insertCatalogMenu(
+  database: DatabaseSync,
+  catalog: readonly CategorySeed[],
+  menuName: string,
+): ComMenuImportResult {
   const normalizedName = menuName.trim();
   if (!normalizedName) throw new Error('El nombre del menú no puede estar vacío.');
   const existing = database.prepare(
@@ -432,7 +569,7 @@ export function insertComMenu(
       });
     };
 
-    addCategories(comMenuCatalog, null);
+    addCategories(catalog, null);
     categoryCount = Number((database.prepare(
       'SELECT COUNT(*) AS count FROM menu_categories WHERE menu_id = ?',
     ).get(menuId) as { count: number }).count);
@@ -453,7 +590,15 @@ export function insertComMenu(
 }
 
 if (require.main === module) {
-  const requestedName = process.argv.slice(2).join(' ').trim() || '.COM menu';
+  const arguments_ = process.argv.slice(2);
+  const useD1 = arguments_.includes('--d1');
+  const requestedName = arguments_.filter((value) => value !== '--d1')
+    .join(' ').trim() || '.COM menu';
+  if (useD1) {
+    insertComMenuIntoD1(requestedName);
+    console.log(`Menú "${requestedName}" importado en D1.`);
+    process.exit(0);
+  }
   const database = openApplicationDatabase();
   try {
     const result = insertComMenu(database, requestedName);

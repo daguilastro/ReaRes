@@ -83,9 +83,9 @@ class RoomSummary {
     id: json['id'] as int,
     name: json['name'] as String,
     tableCount: json['tableCount'] as int,
-    orderCount: json['orderCount'] as int,
-    totalSales: (json['totalSales'] as num).toDouble(),
-    averageSale: (json['averageSale'] as num).toDouble(),
+    orderCount: json['orderCount'] as int? ?? 0,
+    totalSales: (json['totalSales'] as num?)?.toDouble() ?? 0,
+    averageSale: (json['averageSale'] as num?)?.toDouble() ?? 0,
   );
 }
 

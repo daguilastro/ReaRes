@@ -1,15 +1,31 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import '../models/client_user.dart';
-import 'paired_server_client.dart';
+import 'cloud_api.dart';
 
 class ClientRealtimeEvent {
-  const ClientRealtimeEvent({required this.type, this.roomId});
+  const ClientRealtimeEvent({
+    required this.type,
+    this.roomId,
+    this.resource,
+    this.version,
+    this.mutationId,
+    this.payload = const {},
+    this.versions = const {},
+  });
 
   final String type;
   final int? roomId;
+  final String? resource;
+  final int? version;
+  final String? mutationId;
+  final Map<String, dynamic> payload;
+  final Map<String, int> versions;
+
+  bool get requiresResync => type == 'realtime.resync-required';
 }
 
 class ClientRealtimeService {
@@ -18,11 +34,12 @@ class ClientRealtimeService {
   final ClientSession session;
   final _events = StreamController<ClientRealtimeEvent>.broadcast();
   final _subscriptions = <int>{};
+  final _versions = <String, int>{};
   WebSocket? _socket;
-  PairedServerClient? _server;
   Timer? _reconnectTimer;
   bool _closed = false;
   bool _connecting = false;
+  int _attempt = 0;
 
   Stream<ClientRealtimeEvent> get events => _events.stream;
 
@@ -33,32 +50,28 @@ class ClientRealtimeService {
 
   void subscribe(int roomId) {
     _subscriptions.add(roomId);
-    _send({'type': 'subscribe', 'roomId': roomId});
+    _send({'type': 'subscribe', 'hallId': roomId});
   }
 
   void unsubscribe(int roomId) {
     _subscriptions.remove(roomId);
-    _send({'type': 'unsubscribe', 'roomId': roomId});
+    _send({'type': 'unsubscribe', 'hallId': roomId});
   }
 
   Future<void> _connect() async {
     if (_closed || _connecting || _socket != null) return;
     _connecting = true;
-    PairedServerClient? server;
     try {
-      server = await openPairedServerClient();
       final socket = await WebSocket.connect(
-        server.uri('/realtime').replace(scheme: 'wss').toString(),
+        cloudWebSocketUri('/api/v1/realtime').toString(),
         headers: {HttpHeaders.authorizationHeader: 'Bearer ${session.token}'},
-        customClient: server.http,
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 10));
       if (_closed) {
         await socket.close();
-        server.close();
         return;
       }
-      _server = server;
       _socket = socket;
+      _attempt = 0;
       socket.listen(
         _receive,
         onError: (_) => _disconnected(socket),
@@ -66,10 +79,9 @@ class ClientRealtimeService {
         cancelOnError: true,
       );
       for (final roomId in _subscriptions) {
-        _send({'type': 'subscribe', 'roomId': roomId});
+        _send({'type': 'subscribe', 'hallId': roomId});
       }
     } on Object {
-      server?.close();
       _scheduleReconnect();
     } finally {
       _connecting = false;
@@ -81,16 +93,68 @@ class ClientRealtimeService {
     try {
       final value = jsonDecode(raw);
       if (value is! Map<String, dynamic> || value['type'] is! String) return;
-      final roomId = value['roomId'];
-      _events.add(
+      final type = value['type'] as String;
+      final hallId = _int(value['hallId'] ?? value['roomId']);
+      final resource = value['resource'] as String?;
+      final version = _int(value['version']);
+      final payload = value['payload'] is Map
+          ? Map<String, dynamic>.from(value['payload'] as Map)
+          : const <String, dynamic>{};
+      final mutationId = value['mutationId'] as String?;
+      if (isLocalMutation(mutationId)) {
+        if (resource != null && version != null) _versions[resource] = version;
+        return;
+      }
+      final announcedVersions = value['versions'] is Map
+          ? (value['versions'] as Map).map(
+              (key, current) => MapEntry('$key', _int(current) ?? 0),
+            )
+          : const <String, int>{};
+
+      if (type == 'subscribed') {
+        var stale = false;
+        for (final entry in announcedVersions.entries) {
+          final known = _versions[entry.key];
+          if (known != null && known != entry.value) stale = true;
+          _versions[entry.key] = entry.value;
+        }
+        _emit(
+          ClientRealtimeEvent(
+            type: stale ? 'realtime.resync-required' : type,
+            roomId: hallId,
+            versions: announcedVersions,
+          ),
+        );
+        return;
+      }
+
+      if (resource != null && version != null) {
+        final previous = _versions[resource];
+        // A mutation can touch several rows and therefore advance a D1-backed
+        // resource revision by more than one. WebSocket delivery is ordered;
+        // missed changes are detected when the reconnect subscription reports
+        // a revision different from the last one seen by this client.
+        if (previous != null && version <= previous) return;
+        _versions[resource] = version;
+      }
+      _emit(
         ClientRealtimeEvent(
-          type: value['type'] as String,
-          roomId: roomId is int ? roomId : null,
+          type: type,
+          roomId: hallId,
+          resource: resource,
+          version: version,
+          mutationId: mutationId,
+          payload: payload,
+          versions: announcedVersions,
         ),
       );
     } on FormatException {
-      // Se ignoran mensajes que no pertenezcan al protocolo de la aplicación.
+      // Messages outside the versioned application protocol are ignored.
     }
+  }
+
+  void _emit(ClientRealtimeEvent event) {
+    if (!_events.isClosed) _events.add(event);
   }
 
   void _send(Map<String, dynamic> message) {
@@ -102,14 +166,13 @@ class ClientRealtimeService {
   void _disconnected(WebSocket socket) {
     if (!identical(socket, _socket)) return;
     _socket = null;
-    _server?.close();
-    _server = null;
     _scheduleReconnect();
   }
 
   void _scheduleReconnect() {
     if (_closed || _reconnectTimer?.isActive == true) return;
-    _reconnectTimer = Timer(const Duration(seconds: 2), _connect);
+    final seconds = math.min(30, 1 << math.min(_attempt++, 5));
+    _reconnectTimer = Timer(Duration(seconds: seconds), _connect);
   }
 
   Future<void> dispose() async {
@@ -118,8 +181,12 @@ class ClientRealtimeService {
     final socket = _socket;
     _socket = null;
     if (socket != null) await socket.close(1000, 'Client closed');
-    _server?.close();
-    _server = null;
     await _events.close();
   }
 }
+
+int? _int(Object? value) => value is int
+    ? value
+    : value is num
+    ? value.toInt()
+    : int.tryParse('$value');

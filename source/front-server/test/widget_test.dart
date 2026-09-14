@@ -389,6 +389,65 @@ void main() {
     expect(find.text('1 copy copy'), findsOneWidget);
   });
 
+  testWidgets('grouping tables keeps the name dialog alive while it closes', (
+    tester,
+  ) async {
+    const layout = RoomLayoutModel(
+      roomId: 1,
+      roomName: 'Main Hall',
+      walls: [],
+      groups: [],
+      tables: [
+        RoomTableModel(
+          id: 1,
+          identifier: '1',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 70,
+        ),
+        RoomTableModel(
+          id: 2,
+          identifier: '2',
+          x: 180,
+          y: 0,
+          width: 100,
+          height: 70,
+        ),
+      ],
+    );
+    await tester.binding.setSurfaceSize(const Size(1200, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HallLayoutPage(
+            spanish: false,
+            token: 'admin-token',
+            loadLayout: ({required token, required roomId}) async => layout,
+            saveLayout:
+                ({required token, required roomId, required layout}) async =>
+                    layout,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('room-table-1')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('room-table-2')));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Group tables'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Window table');
+    await tester.tap(find.text('Group'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Window table'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('rooms overview shows statistics before opening an editor', (
     tester,
   ) async {
