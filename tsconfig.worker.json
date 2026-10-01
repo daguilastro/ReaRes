@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types", "node"]
   },
-  "include": ["source/cloud-worker/**/*.ts", "source/domain/**/*.ts"]
+  "include": ["apps/cloud_api/**/*.ts"]
 }

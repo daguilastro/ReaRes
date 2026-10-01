@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["source/backend/**/*.ts", "source/domain/**/*.ts"]
+  "include": ["scripts/**/*.ts", "apps/cloud_api/test/**/*.ts"]
 }

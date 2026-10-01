@@ -1,40 +1,29 @@
 {
   "name": "restauranteapp",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "description": "Cloudflare backend and D1 tooling for RestauranteApp",
   "scripts": {
-    "start": "tsx source/backend/server.ts",
+    "start": "wrangler dev",
     "cloud:dev": "wrangler dev",
     "cloud:deploy": "wrangler deploy",
     "cloud:typecheck": "tsc -p tsconfig.worker.json",
     "cloud:d1:migrate:local": "wrangler d1 migrations apply DB --local",
     "cloud:d1:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "cloud:d1:seed:local": "wrangler d1 execute DB --local --file=source/cloud-worker/dev/seed.sql",
-    "cloud:import:com-menu": "./scripts/import-com-menu.sh --d1",
-    "cloud:import:gourmet-menu": "./scripts/import-gourmet-menu.sh --d1",
-    "import:com-menu": "./scripts/import-com-menu.sh",
-    "import:gourmet-menu": "./scripts/import-gourmet-menu.sh",
-    "reset:history": "./scripts/reset-order-history.sh",
+    "cloud:d1:seed:local": "wrangler d1 execute DB --local --file=database/d1/seeds/development.sql",
+    "cloud:import:com-menu": "./scripts/catalog/import_com_menu.sh",
+    "cloud:import:gourmet-menu": "./scripts/catalog/import_gourmet_menu.sh",
     "typecheck": "tsc6 --noEmit",
-    "test": "tsx --test source/backend/tests/**/*.test.ts"
+    "test": "tsx --test apps/cloud_api/test/**/*.test.ts scripts/**/*.test.ts"
   },
-  "keywords": [],
+  "private": true,
+  "keywords": ["cloudflare-workers", "d1", "restaurant"],
   "type": "commonjs",
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
-    "bonjour-service": "^1.4.4",
-    "hono": "^4.13.5",
-    "selfsigned": "^5.5.0",
-    "ws": "^8.21.3"
+    "hono": "^4.13.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260911.1",
     "@types/node": "^26.4.0",
-    "@types/ws": "^8.18.1",
     "tsx": "^4.23.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "wrangler": "^4.131.1"

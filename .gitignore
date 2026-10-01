@@ -3,8 +3,7 @@ npm-debug.log*
 backups/
 .wrangler/
 
-# SQLite runtime databases and transient journal files.
-# The database is generated from db/schheme.sql at startup.
-db/*.sqlite
-db/*.sqlite-wal
-db/*.sqlite-shm
+# Local database exports are never source artifacts. Production uses D1.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

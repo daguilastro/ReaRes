@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "restauranteapp-cloud",
-  "main": "source/cloud-worker/index.ts",
+  "main": "apps/cloud_api/index.ts",
   "compatibility_date": "2026-09-12",
   "vars": {
     "ENVIRONMENT": "production"
@@ -25,7 +25,7 @@
       "binding": "DB",
       "database_name": "restaurante-db",
       "database_id": "87cac56e-7ad5-489a-90a9-43a32a3a2cfa",
-      "migrations_dir": "migrations"
+      "migrations_dir": "database/d1/migrations"
     }
   ]
 }
